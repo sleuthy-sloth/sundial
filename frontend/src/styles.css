@@ -348,6 +348,29 @@ button { cursor: pointer; }
 .sheet-grip { display: none; flex: none; }
 
 .editor-head { display: flex; gap: 8px; align-items: center; }
+
+/* Quiet by design: saving and saved are a whisper, and a failure is the one thing
+   worth interrupting for — it brings its own button rather than a modal. */
+.editor-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  margin-top: -6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.editor-status:empty { min-height: 0; margin-top: 0; }
+.editor-status[data-state='failed'] { color: var(--now); }
+.editor-status button {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font: inherit;
+  color: inherit;
+}
+.editor-status button:hover { border-color: var(--edge); color: var(--edge); }
 .title-input {
   flex: 1;
   padding: 10px 11px;

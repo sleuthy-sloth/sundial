@@ -27,8 +27,11 @@ async function req(path, options) {
 }
 
 export const api = {
-  day: (day) => req(`/api/day?day=${encodeURIComponent(day)}`),
-  week: (start, days = 7) => req(`/api/week?start=${encodeURIComponent(start)}&days=${days}`),
+  // Reads take a signal so a load for a day you have left can be dropped rather than
+  // left to arrive later and paint the wrong day.
+  day: (day, signal) => req(`/api/day?day=${encodeURIComponent(day)}`, { signal }),
+  week: (start, days = 7, signal) =>
+    req(`/api/week?start=${encodeURIComponent(start)}&days=${days}`, { signal }),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),

@@ -1,9 +1,112 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { ICONS } from '../icons'
 import { durText, hhmm } from '../time'
 
 const COLORS = ['slate', 'sky', 'violet', 'amber', 'emerald', 'rose', 'teal', 'indigo']
 
-export default function Editor({ block, today, onChange, onRemove, onClose }) {
+// How long the typing has to stop before what was typed is sent.
+const HOLD = 450
+
+/** The editor owns what is on screen while you type.
+ *
+ * The server's copy of a block arrives a round trip after each write, and a round trip
+ * is exactly when the text you are still writing would be replaced by the text you
+ * started from. So the fields keep their own draft: a pause sends it, leaving the field
+ * sends it, and closing the editor sends it. Nothing that arrives from the server
+ * overwrites a draft that has not gone out yet — and a send that fails keeps the draft
+ * on screen, says so, and can be tried again.
+ */
+export default function Editor({ block, today, onSave, onRemove, onClose }) {
+  const [draft, setDraft] = useState({
+    title: block.title,
+    notes: block.notes,
+    duration_min: block.duration_min,
+  })
+  const [status, setStatus] = useState('idle') // idle | saving | saved | failed
+  const [retry, setRetry] = useState(null) // the changes that did not get through
+
+  // A prop can change under us; the newest one is what a save should call.
+  const newest = useRef({ onSave, block })
+  newest.current = { onSave, block }
+
+  const waiting = useRef(null) // typed, not sent yet
+  const timer = useRef(null)
+
+  const deliver = useCallback(async (changes) => {
+    setStatus('saving')
+    try {
+      await newest.current.onSave(newest.current.block.id, changes)
+      setRetry(null)
+      setStatus('saved')
+    } catch {
+      setRetry(changes)
+      setStatus('failed')
+    }
+  }, [])
+
+  /** Typed fields: show it immediately, send it once the typing stops. */
+  const type = useCallback(
+    (changes) => {
+      setDraft((current) => ({ ...current, ...changes }))
+      waiting.current = { ...(waiting.current || {}), ...changes }
+
+      if ('title' in changes && !String(changes.title).trim()) {
+        // An empty title is not a title. Keep it on screen, send nothing, and let the
+        // next keystroke — or leaving the field — decide what happens to it.
+        if (timer.current) {
+          clearTimeout(timer.current)
+          timer.current = null
+        }
+        return
+      }
+
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = setTimeout(() => {
+        timer.current = null
+        const held = waiting.current
+        waiting.current = null
+        if (held) deliver(held)
+      }, HOLD)
+    },
+    [deliver],
+  )
+
+  /** A button: there is nothing to wait for. */
+  const act = useCallback(
+    (changes) => {
+      const held = waiting.current
+      waiting.current = null
+      if (timer.current) {
+        clearTimeout(timer.current)
+        timer.current = null
+      }
+      deliver({ ...(held || {}), ...changes })
+    },
+    [deliver],
+  )
+
+  const flush = useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+    const held = waiting.current
+    waiting.current = null
+    if (!held) return
+
+    if ('title' in held && !String(held.title).trim()) {
+      // Never send a blank title: put the saved one back and send the rest.
+      setDraft((current) => ({ ...current, title: newest.current.block.title }))
+      delete held.title
+      if (!Object.keys(held).length) return
+    }
+    deliver(held)
+  }, [deliver])
+
+  // Leaving this block, or the editor: send whatever is still waiting.
+  useEffect(() => () => flush(), [flush])
+
   return (
     <aside className="editor" role="dialog" aria-label="Block details">
       <div className="sheet-grip" />
@@ -11,11 +114,25 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
       <div className="editor-head">
         <input
           className="title-input"
-          value={block.title}
-          onChange={(e) => onChange({ title: e.target.value || 'Untitled' })}
+          value={draft.title}
+          onChange={(e) => type({ title: e.target.value })}
+          onBlur={flush}
           aria-label="Title"
         />
         <button className="close" onClick={onClose} aria-label="Close editor">×</button>
+      </div>
+
+      <div className="editor-status" data-state={status} aria-live="polite">
+        {status === 'saving' && <span className="muted">Saving…</span>}
+        {status === 'saved' && <span className="muted">Saved</span>}
+        {status === 'failed' && (
+          <>
+            <span>Couldn’t save</span>
+            <button type="button" onClick={() => deliver(retry)}>
+              Retry
+            </button>
+          </>
+        )}
       </div>
 
       <label className="field">
@@ -23,7 +140,7 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
         <div className="icon-grid">
           <button
             className={`icon-pick${block.icon ? '' : ' on'}`}
-            onClick={() => onChange({ icon: '' })}
+            onClick={() => act({ icon: '' })}
             aria-label="No icon"
           >
             –
@@ -32,7 +149,7 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
             <button
               key={glyph}
               className={`icon-pick${block.icon === glyph ? ' on' : ''}`}
-              onClick={() => onChange({ icon: glyph })}
+              onClick={() => act({ icon: glyph })}
               aria-label={`Icon ${glyph}`}
             >
               {glyph}
@@ -50,13 +167,13 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
             onChange={(e) => {
               const [h, m] = e.target.value.split(':').map(Number)
               if (Number.isFinite(h)) {
-                onChange({ day: block.day ?? today, start_min: h * 60 + m })
+                act({ day: block.day ?? today, start_min: h * 60 + m })
               }
             }}
             aria-label="Start time"
           />
           {block.start_min != null && (
-            <button type="button" onClick={() => onChange({ unschedule: true })}>
+            <button type="button" onClick={() => act({ unschedule: true })}>
               Back to anytime
             </button>
           )}
@@ -71,10 +188,12 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
             min="5"
             max="480"
             step="5"
-            value={block.duration_min}
-            onChange={(e) => onChange({ duration_min: Number(e.target.value) })}
+            value={draft.duration_min}
+            onChange={(e) => type({ duration_min: Number(e.target.value) })}
+            onBlur={flush}
+            onPointerUp={flush}
           />
-          <b>{durText(block.duration_min)}</b>
+          <b>{durText(draft.duration_min)}</b>
         </div>
       </label>
 
@@ -85,7 +204,7 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
             <button
               key={c}
               className={`swatch c-${c}${block.color === c ? ' on' : ''}`}
-              onClick={() => onChange({ color: c })}
+              onClick={() => act({ color: c })}
               aria-label={c}
             />
           ))}
@@ -94,16 +213,21 @@ export default function Editor({ block, today, onChange, onRemove, onClose }) {
 
       <label className="field">
         <span>Notes</span>
-        <textarea rows="3" value={block.notes} onChange={(e) => onChange({ notes: e.target.value })} />
+        <textarea
+          rows="3"
+          value={draft.notes}
+          onChange={(e) => type({ notes: e.target.value })}
+          onBlur={flush}
+        />
       </label>
 
       <div className="editor-actions">
         {block.day === null ? (
           <span className="muted">In the inbox — drag it onto the timeline.</span>
         ) : (
-          <button onClick={() => onChange({ unschedule: true })}>Back to inbox</button>
+          <button onClick={() => act({ unschedule: true })}>Back to inbox</button>
         )}
-        <button className={block.done ? 'primary' : ''} onClick={() => onChange({ done: !block.done })}>
+        <button className={block.done ? 'primary' : ''} onClick={() => act({ done: !block.done })}>
           {block.done ? 'Done' : 'Mark done'}
         </button>
         <button className="danger" onClick={onRemove}>Delete</button>

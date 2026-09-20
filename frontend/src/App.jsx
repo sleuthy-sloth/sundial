@@ -5,6 +5,7 @@ import {
 } from './time'
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
+import { createLatest, createWriteQueue } from './saving'
 import Header from './components/Header'
 import Inbox from './components/Inbox'
 import Timeline from './components/Timeline'
@@ -38,29 +39,60 @@ export default function App() {
   const captureRef = useRef(null)
   const ghostRef = useRef(null) // mirrors `ghost` so pointerup reads the live value
   const movedRef = useRef(false)
+  const writes = useRef(createWriteQueue())
+  const dayLoad = useRef(createLatest())
+  const weekLoad = useRef(createLatest())
+  const inFlight = useRef(null)
 
   useEffect(() => { applyTheme(theme) }, [theme])
   useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
 
   const load = useCallback(async () => {
+    // A request already on its way is for a day you have left. Drop it rather than let
+    // it land later and paint that day's blocks under this day's heading.
+    if (inFlight.current) inFlight.current.abort()
+    const control = new AbortController()
+    inFlight.current = control
+    const wanted = day
+    const ticket = dayLoad.current.begin()
+
     try {
-      const data = await api.day(day)
-      setBlocks(data.blocks)
-      setInbox(data.inbox)
-      setToday(data.today)
-      setError('')
+      const data = await api.day(wanted, control.signal)
+      if (dayLoad.current.isCurrent(ticket) && data.day === wanted) {
+        setBlocks(data.blocks)
+        setInbox(data.inbox)
+        setToday(data.today)
+        setError('')
+      }
     } catch (e) {
-      setError(e.message)
+      if (e.name !== 'AbortError' && dayLoad.current.isCurrent(ticket)) setError(e.message)
     }
+
+    const weekTicket = weekLoad.current.begin()
     try {
-      const wk = await api.week(day)
-      setWeek(wk.days)
+      const wk = await api.week(wanted, 7, control.signal)
+      if (weekLoad.current.isCurrent(weekTicket)) setWeek(wk.days)
     } catch {
       // the week strip is decoration; a failure there must not blank the day
     }
   }, [day])
 
   useEffect(() => { load() }, [load])
+
+  /** Writes for one block go out one at a time, in the order they were asked for.
+   *
+   * Without this, two keystrokes are two requests racing each other and the reply to
+   * the first one lands last, putting the older text back. The day is read back after
+   * the write, and a rejection is handed to whoever asked, so the editor can say so.
+   */
+  const write = useCallback(
+    async (id, changes) => {
+      const saved = await writes.current.run(id, () => api.patch(id, changes))
+      await load()
+      return saved
+    },
+    [load],
+  )
 
   useEffect(() => {
     const t = setInterval(() => setNowMin(minsNow()), 30_000)
@@ -141,11 +173,10 @@ export default function App() {
       if (!g || !moved) return // a plain click selects, it does not reschedule
       try {
         if (d.mode === 'schedule') {
-          await api.patch(d.id, { day, start_min: g.start_min, duration_min: g.duration_min })
+          await write(d.id, { day, start_min: g.start_min, duration_min: g.duration_min })
         } else {
-          await api.patch(d.id, { start_min: g.start_min, duration_min: g.duration_min })
+          await write(d.id, { start_min: g.start_min, duration_min: g.duration_min })
         }
-        await load()
       } catch (e) {
         setError(e.message)
       }
@@ -167,9 +198,9 @@ export default function App() {
     e.preventDefault()
     const title = draft.trim()
     if (!title) return
-    setDraft('')
     try {
       await api.create({ title })
+      setDraft('') // only once it exists: a failure must not eat what was typed
       await load()
     } catch (err) {
       setError(err.message)
@@ -220,27 +251,20 @@ export default function App() {
     [blocks, inbox, selectedId],
   )
 
-  const change = async (changes) => {
-    try {
-      await api.patch(selectedId, changes)
-      await load()
-    } catch (e) {
-      setError(e.message)
-    }
-  }
-
   const toggleDone = async (block) => {
     try {
-      await api.patch(block.id, { done: !block.done })
-      await load()
+      await write(block.id, { done: !block.done })
     } catch (e) {
       setError(e.message)
     }
   }
 
   const remove = async () => {
+    const id = selectedId
     try {
-      await api.remove(selectedId)
+      // Through the queue, so a write still in flight for this block cannot land after
+      // the delete and leave a row that was meant to be gone.
+      await writes.current.run(id, () => api.remove(id))
       setSelectedId(null)
       await load()
     } catch (e) {
@@ -319,9 +343,10 @@ export default function App() {
 
       {selected && (
         <Editor
+          key={selected.id}
           block={selected}
           today={today}
-          onChange={change}
+          onSave={write}
           onRemove={remove}
           onClose={() => setSelectedId(null)}
         />

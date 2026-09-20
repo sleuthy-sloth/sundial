@@ -343,6 +343,200 @@ const boxOf = async (text) => {
   await page.waitForTimeout(400)
 }
 
+// ---- what a slow, reordered or failed network must not do ----
+// Every check above assumes the network answers immediately and in order. These hold
+// requests open, answer them out of order, and fail them — which is what a phone on a
+// bad connection does — and none of it may lose what was typed.
+{
+  const typing = await spawn({ title: 'ui-check typing', day: today, start_min: 21 * 60, duration_min: 30 })
+  await page.reload({ waitUntil: 'networkidle' })
+  const errorsBefore = consoleErrors.length
+
+  const titleField = () => page.locator('.editor .title-input')
+  const openEditorOn = async (title) => {
+    const box = await boxOf(title)
+    await page.mouse.click(box.x + box.width / 2, box.y + 18)
+    await page.waitForSelector('.editor .title-input')
+  }
+
+  // 1. a write held open must not blank the field, and what was typed must still win
+  {
+    let held = null
+    await page.route('**/api/blocks/*', (route) => {
+      if (route.request().method() !== 'PATCH') return route.continue()
+      if (!held) {
+        held = route // leave this one unanswered until we say so
+        return undefined
+      }
+      return route.continue()
+    })
+
+    await openEditorOn('ui-check typing')
+    await titleField().fill('')
+    await titleField().type('slow and deliberate', { delay: 15 })
+    await page.waitForTimeout(700) // long enough for a debounce to fire; the write is held
+
+    check(
+      'a held-up write does not blank the field',
+      (await titleField().inputValue()).length > 0,
+      JSON.stringify(await titleField().inputValue()),
+    )
+    check(
+      'and the field still shows what was typed',
+      (await titleField().inputValue()) === 'slow and deliberate',
+      await titleField().inputValue(),
+    )
+
+    const release = held
+    held = null
+    if (release) await release.continue()
+    await page.waitForTimeout(800)
+    check(
+      'and the API ends up with that exact string',
+      (await find(typing.id)).title === 'slow and deliberate',
+      `stored ${JSON.stringify((await find(typing.id)).title)}`,
+    )
+    await page.unroute('**/api/blocks/*')
+  }
+
+  // 2. writes answered out of order: the last thing typed is what sticks
+  {
+    let first = true
+    await page.route('**/api/blocks/*', async (route) => {
+      if (route.request().method() !== 'PATCH') return route.continue()
+      if (first) {
+        first = false
+        await new Promise((resolve) => setTimeout(resolve, 1200)) // the older write lands last
+      }
+      return route.continue()
+    })
+
+    await openEditorOn('slow and deliberate')
+    await titleField().fill('')
+    await titleField().type('a', { delay: 10 })
+    await page.waitForTimeout(600) // the first write is sent, and is now held for 1.2s
+    await titleField().type('bc', { delay: 10 })
+    await page.waitForTimeout(2000)
+
+    check(
+      'an out-of-order write cannot put the old value back',
+      (await find(typing.id)).title === 'abc',
+      `stored ${JSON.stringify((await find(typing.id)).title)}`,
+    )
+    await page.unroute('**/api/blocks/*')
+  }
+
+  // 3. a failed write keeps the draft, says so, and can be tried again
+  {
+    let refuse = true
+    await page.route('**/api/blocks/*', async (route) => {
+      if (route.request().method() !== 'PATCH' || !refuse) return route.continue()
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'the server said no' }),
+      })
+    })
+
+    await openEditorOn('abc')
+    await titleField().fill('ui-check after a failure')
+    await page.waitForTimeout(700)
+
+    check(
+      'a failed save keeps what was typed',
+      (await titleField().inputValue()) === 'ui-check after a failure',
+      await titleField().inputValue(),
+    )
+    check(
+      'and it says the save failed',
+      (await page.locator('.editor-status[data-state="failed"]').count()) === 1,
+    )
+    check('with a way to try again', (await page.locator('.editor-status button').count()) === 1)
+
+    refuse = false
+    await page.locator('.editor-status button').click()
+    await page.waitForTimeout(700)
+    check(
+      'and retrying saves it',
+      (await find(typing.id)).title === 'ui-check after a failure',
+      `stored ${JSON.stringify((await find(typing.id)).title)}`,
+    )
+    await page.unroute('**/api/blocks/*')
+  }
+
+  // 4. a slow answer for a day you have left must not paint over the day you are on
+  {
+    await page.route('**/api/day*', async (route) => {
+      const asked = new URL(route.request().url()).searchParams.get('day')
+      if (asked === today) await new Promise((resolve) => setTimeout(resolve, 1500))
+      return route.continue()
+    })
+
+    await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+    await page.waitForTimeout(400)
+    await page.locator('.today-pill').click() // starts a slow load for today
+    await page.fill('.day-head input[type="date"]', EMPTY_DAY) // and go straight back
+    await page.waitForTimeout(2400) // the slow answer for today lands in here
+
+    check(
+      'a late answer for another day does not paint over this one',
+      (await page.locator('.content .block').count()) === 0,
+      `${await page.locator('.content .block').count()} blocks drawn`,
+    )
+    check(
+      'and the day on screen is still the one being viewed',
+      (await page.locator('.day-head input[type="date"]').inputValue()) === EMPTY_DAY,
+    )
+    await page.unroute('**/api/day*')
+    await page.fill('.day-head input[type="date"]', today)
+    await page.waitForTimeout(500)
+  }
+
+  // 5. a capture that fails must not eat the text
+  {
+    await page.locator('.tabbar .tab').nth(0).click()
+    await page.waitForTimeout(300)
+    await page.route('**/api/blocks', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'the server said no' }),
+      })
+    })
+
+    const capture = page.locator('.capture-card input')
+    await capture.fill('ui-check kept draft')
+    await capture.press('Enter')
+    await page.waitForTimeout(700)
+
+    check(
+      'a capture that fails keeps what was typed',
+      (await capture.inputValue()) === 'ui-check kept draft',
+      await capture.inputValue(),
+    )
+    check(
+      'and it did not reach the API',
+      !(await inboxNow()).some((b) => b.title === 'ui-check kept draft'),
+    )
+
+    await page.unroute('**/api/blocks')
+    await capture.press('Enter')
+    await page.waitForTimeout(700)
+    const kept = (await inboxNow()).find((b) => b.title === 'ui-check kept draft')
+    check('and pressing Enter again saves it', Boolean(kept))
+    if (kept) made.push(kept.id)
+
+    await page.locator('.tabbar .tab').nth(1).click() // back to the timeline for the rest
+    await page.waitForTimeout(300)
+  }
+
+  // This section fails requests on purpose, and the browser logs each one as a
+  // resource error. Those are the check's own doing, so they are taken back out —
+  // anything the page threw by itself still counts.
+  consoleErrors.splice(errorsBefore, consoleErrors.length - errorsBefore)
+}
+
 // ---- the phone shape ----
 {
   await page.setViewportSize({ width: 390, height: 844 })
