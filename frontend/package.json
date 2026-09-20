@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check:ui": "node e2e/ui_check.mjs"
+    "check:ui": "node e2e/ui_check.mjs",
+    "shots": "node e2e/screenshot.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",

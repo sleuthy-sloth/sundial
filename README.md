@@ -1,103 +1,155 @@
 # sundial
 
-A visual day planner that runs on my own hardware. Tasks sit in an inbox until you
-drag them onto a 24-hour timeline; the plan lives server-side, so every device sees
-the same day.
+A visual day planner that runs on your own hardware. The day is a list you can read at a
+glance and a 24-hour canvas you can drag blocks around on, over one SQLite file and a
+single process.
 
-Named for the obvious: a day, drawn as a dial.
+[![tests](https://github.com/sleuthy-sloth/sundial/actions/workflows/tests.yml/badge.svg)](https://github.com/sleuthy-sloth/sundial/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![python 3.13](https://img.shields.io/badge/python-3.13-3776ab.svg)
+![node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)
+
+![The to-do list: the day in sections, with one task already done](docs/screenshots/todo-light.png)
+
+| The 24-hour canvas | On a phone | Dark |
+|:--:|:--:|:--:|
+| ![The calendar view](docs/screenshots/calendar-light.png) | ![The phone layout](docs/screenshots/phone.png) | ![The dark theme](docs/screenshots/todo-dark.png) |
+
+## What it does
+
+Two views of the same day, switched from the bar at the bottom. It remembers which one
+you were in.
+
+**To-do** — the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
+with a count. White cards, a coloured icon circle, a checkbox on the right, and a time
+range once a task has one. Adding to a section puts the task *after* whatever is already
+in that part of the day rather than on top of it. Anytime is the inbox.
+
+**Calendar** — a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
+the length, drag from the inbox to schedule it, double-click empty space for a short
+block.
+
+Shared by both: a week strip (today in the accent colour, the day you are viewing on a
+pill), light and dark themes that follow your system, an activity icon per task, the free
+time between tasks drawn rather than implied, and a detail panel for icon, colour, notes,
+length, start time, done and delete.
+
+Install it to your phone's home screen from Safari or Chrome — it is a real PWA, with an
+offline shell and a service worker already listening for notifications.
+
+### The house rules
+
+These are features, not styling:
+
+- Nothing signals lateness with red or with urgency. A task from this morning you never
+  got to simply sits there.
+- No streaks, no scores, no "you missed three tasks", no confetti.
+- Empty states are honest and quiet.
+- 44px touch targets, and every primary action is reachable with one thumb.
+- Dark mode, larger text and reduced motion are all honoured.
+
+**No AI, deliberately.** No co-planner, no automatic prioritising, no suggestions. If you
+do want an assistant drafting your day, point one at the API — it is a `POST /api/blocks`.
 
 ## Run it
 
 ```
-bash run.sh          # builds the SPA if missing, then serves everything on :6770
+bash run.sh          # builds the app if it is missing, then serves everything on :6770
 ```
 
-Open http://127.0.0.1:6770. A fresh clone needs the dependencies first:
+Open <http://127.0.0.1:6770>. A fresh clone needs its dependencies first:
 
 ```
-env -u PYTHONPATH python3 -m venv backend/.venv
-env -u PYTHONPATH backend/.venv/bin/pip install -r backend/requirements.txt
+python3 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt
 bash scripts/setup_frontend.sh          # npm install + build
 ```
 
-(`env -u PYTHONPATH` matters on this host: the agent's shell injects its own
-`PYTHONPATH`, and pip then silently installs a hollow venv.)
+(If your shell exports a `PYTHONPATH`, run the pip line as `env -u PYTHONPATH …`: an
+inherited one makes pip install into a hollow venv.)
 
 ## How it is put together
 
-One Python process serves the API and the built SPA on the same origin, so there is
-no CORS to get wrong and no second port to think about. SQLite holds a single table;
-a backup is `cp backend/sundial.db backup.db`.
+One Python process serves the API and the built app on the same origin, so there is no
+CORS to get wrong and no second port to think about. SQLite holds the data; a backup is
+copying `backend/sundial.db`.
 
 ```
-backend/app.py        API + the block rules (FastAPI)
-backend/test_app.py   12 tests over those rules
-frontend/src/App.jsx  the timeline, inbox and editor
-frontend/e2e/         UI check that drives a real browser
+backend/app.py              the API and the block rules (FastAPI)
+backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
+backend/migrations/         numbered .sql files, applied on boot
+backend/test_*.py           34 tests
+frontend/src/App.jsx        state and layout only
+frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
+                            Inbox, Editor, TabBar, Glyph
+frontend/e2e/ui_check.mjs   57 browser checks, with real mouse input
+frontend/e2e/screenshot.mjs regenerates the images above
+deploy/sundial.service      systemd user unit
 ```
 
-The whole data model is one table, `blocks`. A block is in the inbox while its `day`
-and `start_min` are NULL, and scheduled once they are set. Those two travel together:
-the API refuses one without the other, because a block sitting "nowhere at 14:00" is
-a bug waiting to happen.
+The plan itself is one table, `blocks`. A block is in the inbox while its `day` and
+`start_min` are NULL, and scheduled once they are set. Those two travel together — the
+API refuses one without the other, because a block sitting "nowhere at 14:00" is a bug
+waiting to happen.
 
-## Using it
-
-Two views, switched from the bar at the bottom; the app remembers which one you were in.
-
-**To-do** (the way in) — the day cut into Anytime / Morning / Afternoon / Evening, each
-with a count. White cards, a coloured icon circle, a checkbox on the right. Adding to a
-section drops the task after whatever is already in that part of the day rather than on
-top of it. "Anytime" is the inbox.
-
-**Calendar** — a 24-hour canvas. Drag to move a block, drag its bottom edge to change
-the length, drag from the inbox rail to schedule, double-click empty space for a short
-block.
-
-Shared by both: the week strip (today in purple, the day you are viewing on a pill), a
-`☀`/`☾` theme switch that is remembered and follows your system by default, and a
-detail panel for icon, colour, notes, length, start time, done and delete.
-
-Add it to your iPhone home screen from Safari — it is a real PWA, with an offline
-shell and a service worker already listening for notifications.
+Imported calendar events live in their own table rather than in `blocks`, because a
+calendar holds things that are not plans: an all-day event is a date rather than an
+instant, and a multi-day event cannot fit an invariant that says a block stays inside one
+day. Keeping them apart means `blocks` keeps meaning "the day I made", and sync only has
+to move rows between two shapes it owns.
 
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q     # the API rules
-cd frontend && npm run check:ui                          # the UI, with real drags
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 34 tests
+cd frontend && npm run check:ui                        # 57 browser checks
 ```
 
-The UI check drives headless Chromium with real mouse input and then reads the API
-back to confirm the server agrees with what the screen did. It derives its
-expectations from the API rather than hardcoding counts, seeds its own data, and
-deletes exactly what it created.
+The browser checks drive headless Chromium with real mouse input — actual drags, not
+synthesised events — then read the API back to confirm the server agrees with what the
+screen did. They derive their expectations from the API instead of hardcoding counts,
+seed their own data, and delete exactly what they created.
 
-## Deployed
-
-Live on the tailnet only, nothing public:
-
-```
-https://planner.example.ts.net:8445/
-```
-
-`tailscale serve --https=8445` points at `127.0.0.1:6770`. The app runs under the
-systemd user unit in `deploy/sundial.service`, installed to
-`~/.config/systemd/user/`:
+To regenerate the screenshots above, start a second instance against a throwaway database
+and run the shooter. It refuses to run against a database that already has plans in it:
 
 ```
-systemctl --user status sundial
-systemctl --user restart sundial
-journalctl --user -u sundial -n 50          # or tail the journal
+SUNDIAL_DB=/tmp/shots.db PORT=6771 bash run.sh &
+cd frontend && npm run shots
 ```
 
-Because it is a unit rather than a hand-started process it comes back after a
-reboot (needs `loginctl enable-linger USER`, already on). **A process started by
-hand from a shell does not** — that is exactly how this kept serving 502s to a phone
-while looking fine on the Pi.
+## Deploying
 
-## Not built yet
+The app binds `127.0.0.1:6770` and expects something in front of it. On a tailnet, one
+command gives you HTTPS that only your own devices can reach:
 
-Recurring routines, notifications, and the agent that turns a paragraph of
-brain-dump into a scheduled day. The API is already the seam for that last one — it
-is a `POST /api/blocks`.
+```
+tailscale serve --bg --https=8445 http://127.0.0.1:6770
+```
+
+`deploy/sundial.service` is a systemd user unit — adjust the paths to where you cloned
+this, then:
+
+```
+install -Dm644 deploy/sundial.service ~/.config/systemd/user/sundial.service
+systemctl --user daemon-reload && systemctl --user enable --now sundial
+loginctl enable-linger $USER       # so it keeps running with nobody logged in
+```
+
+Use a unit rather than a hand-started process. A process started from a shell does not
+come back after a reboot, and the failure is quiet: the reverse proxy keeps its mapping
+while the port behind it is empty, so the app looks dead from a phone while every check
+you run on the host still passes.
+
+## Status
+
+v0.1.0 is the first working version, and it is in use daily. The honest gaps:
+
+- **Calendar sync is half built.** Two providers, one model: the schema, the iCalendar
+  conversion and the conflict rules are written and tested; the transports are not. iCloud
+  will be CalDAV with an app-specific password. Google cannot be, because password-based
+  CalDAV was switched off in 2024, so it needs the REST API behind OAuth.
+- No repeating tasks or routines yet.
+- Notifications: the service worker is in place and listening, nothing sends yet.
+
+MIT licensed — see [LICENSE](LICENSE).

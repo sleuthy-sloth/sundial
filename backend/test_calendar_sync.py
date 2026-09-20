@@ -156,7 +156,10 @@ def test_a_block_becomes_a_vevent_and_comes_back_intact():
         "duration_min": 90,
         "notes": "notes with an emoji 🧘",
     }
-    back, _ = cs.events_from_ics(cs.block_to_ics(block).decode(), "sundial", "icloud")
+    # The timezone is passed explicitly: the default is the machine's own zone, and
+    # this test must not depend on where it runs.
+    written = cs.block_to_ics(block, tzid="America/Los_Angeles").decode()
+    back, _ = cs.events_from_ics(written, "sundial", "icloud")
     assert len(back) == 1
     assert back[0]["uid"] == "abc123@sundial"
     assert back[0]["title"] == "Deep work, with a comma"
@@ -172,9 +175,9 @@ def test_an_unscheduled_block_has_no_event_to_write():
 
 def test_the_uid_is_stable_so_a_push_updates_rather_than_duplicates():
     block = {"id": "same", "title": "one", "day": "2026-09-21", "start_min": 60, "duration_min": 30}
-    first, _ = cs.events_from_ics(cs.block_to_ics(block).decode(), "s", "icloud")
+    first, _ = cs.events_from_ics(cs.block_to_ics(block, tzid="UTC").decode(), "s", "icloud")
     block["title"] = "changed"
-    second, _ = cs.events_from_ics(cs.block_to_ics(block).decode(), "s", "icloud")
+    second, _ = cs.events_from_ics(cs.block_to_ics(block, tzid="UTC").decode(), "s", "icloud")
     assert first[0]["uid"] == second[0]["uid"] == "same@sundial"
 
 

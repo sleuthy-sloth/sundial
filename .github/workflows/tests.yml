@@ -1,0 +1,60 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api:
+    name: API and calendar rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest -q
+        working-directory: backend
+
+  interface:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+      # The checks drive the real app over HTTP, so bring it up first and wait for
+      # it to answer rather than guessing at a sleep.
+      - name: start the app
+        working-directory: backend
+        run: |
+          python -m uvicorn app:app --host 127.0.0.1 --port 6770 &
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:6770/api/health > /dev/null; then
+              echo "the app is answering"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the app never answered" >&2
+          exit 1
+
+      - run: npm run check:ui -- http://127.0.0.1:6770
+        working-directory: frontend

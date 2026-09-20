@@ -20,22 +20,35 @@ the same name for every dependency in the venv.)
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from icalendar import Calendar as ICalendar
 from icalendar import Event as IEvent
 
-# Floating times (no TZID, no Z) mean "whatever the clock on the wall says". On a
-# single-user box that is the box's own timezone.
-SERVER_TZ = ZoneInfo("America/Los_Angeles")
+
+@lru_cache(maxsize=1)
+def server_tz() -> ZoneInfo:
+    """The zone that floating times (no TZID, no Z) belong to.
+
+    Defaults to the machine's own timezone rather than a hard-coded one, and can be
+    pinned with SUNDIAL_TZ for a box that keeps UTC while the person does not.
+    """
+    named = os.environ.get("SUNDIAL_TZ")
+    if named:
+        return ZoneInfo(named)
+    local = datetime.now().astimezone().tzinfo
+    key = getattr(local, "key", None)
+    return ZoneInfo(key) if key else ZoneInfo("UTC")
 
 
-def _utc(value, default_tz: ZoneInfo = SERVER_TZ) -> datetime:
+def _utc(value, default_tz: Optional[ZoneInfo] = None) -> datetime:
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=default_tz)
+            value = value.replace(tzinfo=default_tz or server_tz())
         return value.astimezone(timezone.utc)
     if isinstance(value, date):
         # An all-day event is a date, not an instant. Anchoring it at UTC midnight
@@ -132,7 +145,7 @@ def events_from_ics(
     return rows, cancelled
 
 
-def block_to_ics(block: dict, *, tzid: str = "America/Los_Angeles", stamp: Optional[str] = None) -> bytes:
+def block_to_ics(block: dict, *, tzid: Optional[str] = None, stamp: Optional[str] = None) -> bytes:
     """A block as a VEVENT. The same bytes go to CalDAV PUT and to Google, which is
     the point of generating iCalendar here rather than per provider.
 
@@ -142,7 +155,8 @@ def block_to_ics(block: dict, *, tzid: str = "America/Los_Angeles", stamp: Optio
     if block.get("start_min") is None or block.get("day") is None:
         raise ValueError("only a scheduled block can be pushed to a calendar")
 
-    start = datetime.fromisoformat(f"{block['day']}T00:00:00").replace(tzinfo=ZoneInfo(tzid))
+    zone = ZoneInfo(tzid) if tzid else server_tz()
+    start = datetime.fromisoformat(f"{block['day']}T00:00:00").replace(tzinfo=zone)
     start += timedelta(minutes=int(block["start_min"]))
     end = start + timedelta(minutes=int(block["duration_min"]))
 

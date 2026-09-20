@@ -1,4 +1,5 @@
 import WeekStrip from './WeekStrip'
+import Glyph from './Glyph'
 import { monthName, weekdayName } from '../time'
 
 export default function Header({
@@ -19,7 +20,7 @@ export default function Header({
             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
             aria-label="Switch theme"
           >
-            {theme === 'dark' ? '☾' : '☀'}
+            <Glyph name={theme === 'dark' ? 'moon' : 'sun'} />
           </button>
         </div>
       </div>
