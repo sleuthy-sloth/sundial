@@ -2,3 +2,7 @@ fastapi
 uvicorn
 pytest
 httpx
+# calendar sync (all pure-python wheels — nothing to compile on the Pi)
+icalendar
+caldav
+recurring-ical-events

@@ -7,3 +7,7 @@ backend/*.db-wal
 backend/*.db-shm
 .venv/
 *.log
+
+# calendar credentials — never commit these
+icloud.env
+google.json

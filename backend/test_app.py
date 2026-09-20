@@ -117,13 +117,23 @@ def test_health_reports_the_count(client):
 
 
 def test_a_fresh_database_lands_migrated():
+    """Every migration on disk is applied, and each one's effect is visible."""
     sundial.DB_PATH.unlink(missing_ok=True)
-    assert sundial.bootstrap() == [1]
+    on_disk = sorted(int(p.name.split("_", 1)[0]) for p in sundial.MIGRATIONS.glob("*.sql"))
+
+    assert sundial.bootstrap() == on_disk
+
     with sundial.db() as conn:
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+        tables = {
+            r["name"]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
         versions = [r["version"] for r in conn.execute("SELECT version FROM schema_version")]
-    assert "icon" in cols
-    assert versions == [1]
+
+    assert {"icon", "external_uid"} <= columns  # 001 and 002
+    assert {"calendars", "events", "sync_log"} <= tables  # 002
+    assert versions == on_disk
 
 
 def test_bootstrap_is_idempotent():
