@@ -18,6 +18,18 @@ jobs:
       - run: python -m pytest -q
         working-directory: backend
 
+      # A unit that does not parse fails on the host at the worst moment, and the failure
+      # is invisible here. systemd-analyze verify prints its errors but still exits 0, so
+      # this asserts on the output instead of trusting the exit code.
+      - name: the systemd unit parses
+        run: |
+          out=$(systemd-analyze verify deploy/sundial.service 2>&1 || true)
+          if [ -n "$out" ]; then
+            echo "$out" >&2
+            exit 1
+          fi
+          echo "deploy/sundial.service is valid"
+
   interface:
     name: Browser checks
     runs-on: ubuntu-latest
