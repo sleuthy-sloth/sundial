@@ -28,4 +28,26 @@ const dayLabel = (iso, today) => {
   })
 }
 
-export { HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay, dayLabel }
+// Week strip helpers
+const dowOf = (iso) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })
+const dayNumOf = (iso) => Number(iso.slice(8, 10))
+
+/** The visible "free time" bands between blocks.
+ *  Internal gaps only: the space before the first block and after the last one is
+ *  already reported by the day's tally, and a night-long band would be noise. */
+const freeGaps = (blocks, minMinutes = 45) => {
+  const sorted = [...blocks].sort((a, b) => a.start_min - b.start_min)
+  const gaps = []
+  for (let i = 1; i < sorted.length; i += 1) {
+    const from = sorted[i - 1].start_min + sorted[i - 1].duration_min
+    const to = sorted[i].start_min
+    if (to - from >= minMinutes) gaps.push({ start_min: from, minutes: to - from })
+  }
+  return gaps
+}
+
+export {
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay, dayLabel,
+  dowOf, dayNumOf, freeGaps,
+}

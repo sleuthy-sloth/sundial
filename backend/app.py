@@ -13,7 +13,7 @@ import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date as _date
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("SUNDIAL_DB", ROOT / "sundial.db"))
+MIGRATIONS = ROOT / "migrations"
 STATIC = ROOT / "static"
 
 PALETTE = ["slate", "sky", "violet", "amber", "emerald", "rose", "teal", "indigo"]
@@ -59,6 +60,38 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS blocks_day ON blocks(day, start_min)")
 
 
+def migrate() -> list[int]:
+    """Apply every migration above the recorded version, in filename order.
+
+    One `.sql` file per change, numbered; the number is the version. Adding a column
+    later means adding a file, never editing one that has already run.
+    """
+    applied: list[int] = []
+    if not MIGRATIONS.is_dir():
+        return applied
+    with db() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+        row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+        current = row["v"] or 0
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            try:
+                version = int(path.name.split("_", 1)[0])
+            except ValueError:
+                raise RuntimeError(f"migration {path.name} must start with a number") from None
+            if version <= current:
+                continue
+            conn.executescript(path.read_text())
+            conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+            applied.append(version)
+    return applied
+
+
+def bootstrap() -> list[int]:
+    """Everything a fresh or existing database needs before serving."""
+    init_db()
+    return migrate()
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -82,6 +115,7 @@ class BlockIn(BaseModel):
     start_min: Optional[int] = Field(default=None, ge=0, lt=DAY_MIN)
     duration_min: int = Field(default=30, ge=5, le=DAY_MIN)
     color: Optional[str] = None
+    icon: str = Field(default="", max_length=8)
     notes: str = ""
 
 
@@ -91,6 +125,7 @@ class BlockPatch(BaseModel):
     start_min: Optional[int] = Field(default=None, ge=0, lt=DAY_MIN)
     duration_min: Optional[int] = Field(default=None, ge=5, le=DAY_MIN)
     color: Optional[str] = None
+    icon: Optional[str] = Field(default=None, max_length=8)
     notes: Optional[str] = None
     done: Optional[bool] = None
     unschedule: bool = False  # move the block back to the inbox
@@ -98,7 +133,7 @@ class BlockPatch(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_db()
+    bootstrap()
     yield
 
 
@@ -138,6 +173,32 @@ def get_day(day: Optional[str] = None) -> dict:
     }
 
 
+@app.get("/api/week")
+def get_week(start: Optional[str] = None, days: int = 7) -> dict:
+    """How loaded each day is — what the week strip shows."""
+    days = max(1, min(days, 31))
+    start = start or today()
+    _validate_day(start)
+    first = _date.fromisoformat(start)
+    span = [(first + timedelta(days=i)).isoformat() for i in range(days)]
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT day, COUNT(*) AS blocks, SUM(duration_min) AS minutes
+               FROM blocks
+               WHERE day BETWEEN ? AND ?
+               GROUP BY day""",
+            (span[0], span[-1]),
+        ).fetchall()
+    load = {r["day"]: (r["blocks"], r["minutes"] or 0) for r in rows}
+    return {
+        "start": span[0],
+        "days": [
+            {"day": d, "blocks": load.get(d, (0, 0))[0], "minutes": load.get(d, (0, 0))[1]}
+            for d in span
+        ],
+    }
+
+
 @app.post("/api/blocks", status_code=201)
 def create_block(body: BlockIn) -> dict:
     block_id = uuid.uuid4().hex[:12]
@@ -152,10 +213,11 @@ def create_block(body: BlockIn) -> dict:
         _check_fits(body.start_min, body.duration_min)
     with db() as conn:
         conn.execute(
-            """INSERT INTO blocks (id, title, day, start_min, duration_min, color, notes, done, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+            """INSERT INTO blocks
+                 (id, title, day, start_min, duration_min, color, icon, notes, done, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
             (block_id, body.title.strip(), body.day, body.start_min,
-             body.duration_min, color, body.notes, now_iso()),
+             body.duration_min, color, body.icon.strip(), body.notes, now_iso()),
         )
     return _get_block(block_id)
 

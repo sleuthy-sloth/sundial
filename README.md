@@ -47,7 +47,11 @@ a bug waiting to happen.
 - Drag an inbox item onto the timeline to schedule it. It lands under the pointer.
 - Drag a block to move it; drag its bottom edge to change the length.
 - Double-click empty timeline space for a 30-minute block.
-- Click a block for colour, notes, length, done, delete.
+- Click a block for icon, colour, notes, length, done, delete.
+- The strip across the top is the week, with a bar showing how booked each day is.
+- `☀`/`☾` switches theme; the choice is remembered, and follows your system by default.
+- Add it to your iPhone home screen from Safari — it is a real PWA, with an offline
+  shell and a service worker already listening for notifications.
 
 ## Checks
 

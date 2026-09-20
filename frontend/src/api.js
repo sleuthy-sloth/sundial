@@ -11,6 +11,7 @@ async function req(path, options) {
 
 export const api = {
   day: (day) => req(`/api/day?day=${encodeURIComponent(day)}`),
+  week: (start, days = 7) => req(`/api/week?start=${encodeURIComponent(start)}&days=${days}`),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),

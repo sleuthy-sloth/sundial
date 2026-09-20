@@ -1,28 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import {
-  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay, dayLabel,
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, dayLabel,
 } from './time'
-
-const COLORS = ['slate', 'sky', 'violet', 'amber', 'emerald', 'rose', 'teal', 'indigo']
-const HOURS = Array.from({ length: 24 }, (_, h) => h)
+import { applyTheme, initialTheme, rememberTheme } from './theme'
+import Header from './components/Header'
+import Inbox from './components/Inbox'
+import Timeline from './components/Timeline'
+import Editor from './components/Editor'
 
 export default function App() {
   const [day, setDay] = useState(todayISO())
   const [today, setToday] = useState(todayISO())
   const [blocks, setBlocks] = useState([])
   const [inbox, setInbox] = useState([])
+  const [week, setWeek] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [nowMin, setNowMin] = useState(minsNow())
   const [drag, setDrag] = useState(null)
   const [ghost, setGhost] = useState(null)
+  const [theme, setTheme] = useState(initialTheme)
 
   const contentRef = useRef(null)
   const scrollerRef = useRef(null)
   const ghostRef = useRef(null) // mirrors `ghost` so pointerup reads the live value
   const movedRef = useRef(false)
+
+  useEffect(() => { applyTheme(theme) }, [theme])
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +39,12 @@ export default function App() {
       setError('')
     } catch (e) {
       setError(e.message)
+    }
+    try {
+      const wk = await api.week(day)
+      setWeek(wk.days)
+    } catch {
+      // the week strip is decoration; a failure there must not blank the day
     }
   }, [day])
 
@@ -51,6 +63,12 @@ export default function App() {
   }, [day]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setGhostValue = (g) => { ghostRef.current = g; setGhost(g) }
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    rememberTheme(next)
+    setTheme(next)
+  }
 
   // ---- dragging: one pointer handler for move, resize and inbox→timeline ----
 
@@ -182,174 +200,59 @@ export default function App() {
     }
   }
 
-  const scheduledMin = blocks.reduce((n, b) => n + b.duration_min, 0)
+  const planned = blocks.reduce((n, b) => n + b.duration_min, 0)
 
   return (
-    <div className={`layout ${selected ? 'with-editor' : ''}`}>
+    <div className={`layout${selected ? ' with-editor' : ''}`}>
       <aside className="side">
         <h1 className="brand">sundial</h1>
-
-        <form onSubmit={capture} className="capture">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Dump it here, press Enter"
-            aria-label="Capture a task"
-          />
-        </form>
-
-        <div className="side-head">
-          Inbox {inbox.length > 0 && <span className="count">{inbox.length}</span>}
-        </div>
-
-        <ul className="inbox">
-          {inbox.length === 0 && <li className="empty">Nothing waiting. Everything has a time.</li>}
-          {inbox.map((b) => (
-            <li
-              key={b.id}
-              className={`chip c-${b.color} ${selectedId === b.id ? 'sel' : ''}`}
-              onPointerDown={(e) => beginDrag(e, 'schedule', b)}
-              onClick={() => setSelectedId(b.id)}
-            >
-              <span className="chip-title">{b.title}</span>
-              <span className="chip-dur">{durText(b.duration_min)}</span>
-            </li>
-          ))}
-        </ul>
-
-        {inbox.length > 0 && <p className="hint">Drag onto the timeline to give it a time.</p>}
+        <Inbox
+          items={inbox}
+          draft={draft}
+          selectedId={selectedId}
+          onDraft={setDraft}
+          onCapture={capture}
+          onPointerDown={beginDrag}
+          onSelect={setSelectedId}
+        />
       </aside>
 
       <main className="day">
-        <header className="day-head">
-          <button onClick={() => setDay(shiftDay(day, -1))} title="Previous day" aria-label="Previous day">‹</button>
-          <button className="day-label" onClick={() => setDay(today)} title="Jump to today">
-            {dayLabel(day, today)}
-          </button>
-          <button onClick={() => setDay(shiftDay(day, 1))} title="Next day" aria-label="Next day">›</button>
-          <input
-            type="date"
-            value={day}
-            onChange={(e) => e.target.value && setDay(e.target.value)}
-            aria-label="Pick a date"
-          />
-          <span className="tally">
-            {durText(scheduledMin)} planned · {durText(Math.max(DAY_MIN - scheduledMin, 0))} open
-          </span>
-          {error && <span className="error" title={error}>API error</span>}
-        </header>
-
-        <div className="scroller" ref={scrollerRef}>
-          <div className="content" ref={contentRef} onDoubleClick={scheduleAt} title="Double-click to add a block">
-            {HOURS.map((h) => (
-              <div key={h} className="hour" style={{ top: h * HOUR_PX }}>
-                <span className="hour-label">{hhmm(h * 60)}</span>
-              </div>
-            ))}
-
-            {day === today && (
-              <div className="now" style={{ top: (nowMin / 60) * HOUR_PX }}>
-                <span className="now-dot" />
-              </div>
-            )}
-
-            {blocks.map((b) => {
-              const live = drag?.id === b.id && drag.mode !== 'schedule' && ghost
-              const view = live ? ghost : b
-              const isNow = day === today && b.start_min <= nowMin && nowMin < b.start_min + b.duration_min
-              return (
-                <div
-                  key={b.id}
-                  className={`block c-${b.color}${b.done ? ' done' : ''}${isNow ? ' current' : ''}${selectedId === b.id ? ' sel' : ''}`}
-                  style={{ top: (view.start_min / 60) * HOUR_PX, height: Math.max((view.duration_min / 60) * HOUR_PX, 20) }}
-                  onPointerDown={(e) => beginDrag(e, 'move', b)}
-                  onClick={() => setSelectedId(b.id)}
-                >
-                  <span className="block-time">
-                    {hhmm(view.start_min)}–{hhmm(view.start_min + view.duration_min)}
-                  </span>
-                  <span className="block-title">{b.title}</span>
-                  <span
-                    className="resize"
-                    onPointerDown={(e) => beginDrag(e, 'resize', b)}
-                    title="Drag to change length"
-                  />
-                </div>
-              )
-            })}
-
-            {drag?.mode === 'schedule' && ghost && (
-              <div
-                className="block ghost"
-                style={{ top: (ghost.start_min / 60) * HOUR_PX, height: (ghost.duration_min / 60) * HOUR_PX }}
-              >
-                <span className="block-time">{hhmm(ghost.start_min)}</span>
-                <span className="block-title">{drag.title}</span>
-              </div>
-            )}
-          </div>
-        </div>
+        <Header
+          day={day}
+          today={today}
+          dayName={dayLabel(day, today)}
+          tally={`${durText(planned)} planned · ${durText(Math.max(DAY_MIN - planned, 0))} open`}
+          week={week}
+          theme={theme}
+          error={error}
+          onPickDay={setDay}
+          onShift={(delta) => setDay(shiftDay(day, delta))}
+          onTheme={toggleTheme}
+        />
+        <Timeline
+          day={day}
+          today={today}
+          blocks={blocks}
+          nowMin={nowMin}
+          selectedId={selectedId}
+          drag={drag}
+          ghost={ghost}
+          contentRef={contentRef}
+          scrollerRef={scrollerRef}
+          onDoubleClick={scheduleAt}
+          onPointerDown={beginDrag}
+          onSelect={setSelectedId}
+        />
       </main>
 
       {selected && (
-        <aside className="editor">
-          <div className="editor-head">
-            <input
-              className="title-input"
-              value={selected.title}
-              onChange={(e) => change({ title: e.target.value || 'Untitled' })}
-              aria-label="Title"
-            />
-            <button className="close" onClick={() => setSelectedId(null)} aria-label="Close editor">×</button>
-          </div>
-
-          <label className="field">
-            <span>Length</span>
-            <div className="dur-row">
-              <input
-                type="range" min="5" max="480" step="5"
-                value={selected.duration_min}
-                onChange={(e) => change({ duration_min: Number(e.target.value) })}
-              />
-              <b>{durText(selected.duration_min)}</b>
-            </div>
-          </label>
-
-          <label className="field">
-            <span>Colour</span>
-            <div className="swatches">
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  className={`swatch c-${c} ${selected.color === c ? 'on' : ''}`}
-                  onClick={() => change({ color: c })}
-                  aria-label={c}
-                />
-              ))}
-            </div>
-          </label>
-
-          <label className="field">
-            <span>Notes</span>
-            <textarea
-              rows="4"
-              value={selected.notes}
-              onChange={(e) => change({ notes: e.target.value })}
-            />
-          </label>
-
-          <div className="editor-actions">
-            {selected.day === null ? (
-              <span className="muted">In the inbox — drag it onto the timeline.</span>
-            ) : (
-              <button onClick={() => change({ unschedule: true })}>Back to inbox</button>
-            )}
-            <button className={selected.done ? 'primary' : ''} onClick={() => change({ done: !selected.done })}>
-              {selected.done ? 'Done' : 'Mark done'}
-            </button>
-            <button className="danger" onClick={remove}>Delete</button>
-          </div>
-        </aside>
+        <Editor
+          block={selected}
+          onChange={change}
+          onRemove={remove}
+          onClose={() => setSelectedId(null)}
+        />
       )}
     </div>
   )

@@ -189,6 +189,123 @@ const boxOf = async (text) => {
   await page.waitForTimeout(400)
 }
 
+// ---- the week strip ----
+{
+  const week = (await req(`/week?start=${today}`)).days
+  check('the week strip draws seven days', (await page.locator('.week-strip .day-pill').count()) === 7)
+  check('every day carries a load bar', (await page.locator('.week-strip .pill-bar i').count()) === 7)
+
+  const on = page.locator('.week-strip .day-pill.on')
+  check('the day being viewed is marked', (await on.count()) === 1)
+  const drawn = await on.locator('.pill-bar i').evaluate((el) => el.style.height)
+  const minutes = week.find((d) => d.day === today).minutes
+  const expected = `${Math.round(Math.min(minutes / 480, 1) * 100)}%`
+  check('its bar reflects how booked the day is', drawn === expected, `${drawn} for ${minutes}m planned`)
+}
+
+// ---- theme ----
+{
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme)
+  check('starts light', (await theme()) === 'light', await theme())
+
+  await page.locator('.theme-toggle').click()
+  await page.waitForTimeout(150)
+  check('the toggle switches to dark', (await theme()) === 'dark')
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+  check('and the page actually repaints', bg !== 'rgb(246, 247, 249)', bg)
+
+  await page.reload({ waitUntil: 'networkidle' })
+  check('the choice survives a reload', (await theme()) === 'dark')
+
+  await page.locator('.theme-toggle').click()
+  await page.waitForTimeout(150)
+  check('and switches back', (await theme()) === 'light')
+}
+
+// ---- an icon on a block ----
+{
+  const icon_block = await spawn({ title: 'ui-check icon', day: today, start_min: 14 * 60, duration_min: 60 })
+  await page.reload({ waitUntil: 'networkidle' })
+
+  const box = await boxOf('ui-check icon')
+  await page.mouse.click(box.x + box.width / 2, box.y + 18)
+  await page.locator('.editor .icon-pick').nth(3).click() // nth(0) is the "no icon" dash
+  await page.waitForTimeout(400)
+
+  const stored = (await find(icon_block.id)).icon
+  check('picking an icon stores it', stored.length > 0, `icon=${stored}`)
+  check('and the block draws it', (await page.locator('.content .block .block-icon').count()) >= 1)
+}
+
+// ---- free time between blocks is visible, not implied ----
+{
+  await spawn({ title: 'ui-check gap a', day: today, start_min: 16 * 60, duration_min: 60 })
+  await spawn({ title: 'ui-check gap b', day: today, start_min: 19 * 60, duration_min: 60 })
+  await page.reload({ waitUntil: 'networkidle' })
+
+  const gaps = page.locator('.content .gap')
+  const heights = await gaps.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().height)),
+  )
+  check('the two-hour hole is drawn as free time', heights.includes(2 * 56), `heights ${heights.join(', ')}`)
+  const label = (await gaps.first().innerText()).trim()
+  check('and it is labelled in plain words', /free$/.test(label), label)
+}
+
+// ---- an empty day says so in words ----
+{
+  await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+  await page.waitForTimeout(400)
+  check('an empty day explains itself', (await page.locator('.timeline-empty').count()) === 1)
+  await page.fill('.day-head input[type="date"]', today)
+  await page.waitForTimeout(400)
+}
+
+// ---- the phone shape ----
+{
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(300)
+  const box = await boxOf('ui-check icon')
+  await page.mouse.click(box.x + box.width / 2, box.y + 18)
+  await page.waitForTimeout(300)
+
+  const sheet = await page.locator('.editor').evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { position: getComputedStyle(el).position, bottom: Math.round(r.bottom), vh: window.innerHeight }
+  })
+  check('the editor becomes a sheet on a phone', sheet.position === 'fixed', JSON.stringify(sheet))
+  check('and sits at the bottom of the screen', Math.abs(sheet.bottom - sheet.vh) <= 2)
+  check('with a grab handle', await page.locator('.sheet-grip').isVisible())
+
+  const hit = await page.locator('.editor-actions button').first().evaluate((el) => el.getBoundingClientRect().height)
+  check('its actions are thumb-sized', hit >= 44, `${Math.round(hit)}px`)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+}
+
+// ---- reduced motion ----
+{
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.waitForTimeout(100)
+  const dur = await page.locator('.content .block').first().evaluate((el) => getComputedStyle(el).transitionDuration)
+  check('reduced motion switches animation off', dur === '0s', dur)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+}
+
+// ---- the PWA shell ----
+{
+  const res = await fetch(`${BASE}/manifest.webmanifest`)
+  const manifest = await res.json()
+  check('the manifest is served', res.ok && manifest.display === 'standalone', manifest.display)
+  check('with icons to install from', (manifest.icons || []).length >= 2)
+
+  const icon = await fetch(`${BASE}/apple-touch-icon.png`)
+  check('the iOS home-screen icon exists', icon.ok && icon.headers.get('content-type') === 'image/png')
+
+  const regs = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)
+  check('the service worker registered', regs >= 1, `${regs} registration(s)`)
+}
+
 // ---- clean up this run's seeds, then re-check the render against the API ----
 {
   for (const id of [...made]) await req(`/blocks/${id}`, { method: 'DELETE' })
