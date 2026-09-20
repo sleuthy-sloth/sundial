@@ -61,6 +61,24 @@ back to confirm the server agrees with what the screen did. It derives its
 expectations from the API rather than hardcoding counts, seeds its own data, and
 deletes exactly what it created.
 
+## Deployed
+
+Live on the tailnet only, nothing public:
+
+```
+https://planner.example.ts.net:8445/
+```
+
+`tailscale serve --https=8445` points at `127.0.0.1:6770`. The app itself is run by a
+systemd user unit, which is *not* installed yet — see `deploy/sundial.service`:
+
+```
+install -Dm644 deploy/sundial.service ~/.config/systemd/user/sundial.service
+systemctl --user daemon-reload && systemctl --user enable --now sundial
+```
+
+That survives a reboot; a hand-started process does not.
+
 ## Not built yet
 
 Recurring routines, notifications, and the agent that turns a paragraph of

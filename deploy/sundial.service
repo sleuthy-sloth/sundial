@@ -1,0 +1,16 @@
+[Unit]
+Description=sundial — visual day planner
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/sundial
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/repos/sundial/backend/.venv/bin/uvicorn app:app --app-dir backend --host 127.0.0.1 --port 6770
+Restart=always
+RestartSec=5
+StandardOutput=append:the journal
+StandardError=append:the journal
+
+[Install]
+WantedBy=default.target
