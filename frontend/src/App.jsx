@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import {
-  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, dayLabel,
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay,
 } from './time'
+import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
 import Header from './components/Header'
 import Inbox from './components/Inbox'
 import Timeline from './components/Timeline'
 import Editor from './components/Editor'
+import Agenda from './components/Agenda'
+import TabBar from './components/TabBar'
+
+const VIEW_KEY = 'sundial-view'
+// Where a new task lands in a section that has nothing in it yet.
+const SECTION_START = { morning: 8 * 60, afternoon: 13 * 60, evening: 18 * 60 }
 
 export default function App() {
+  const [view, setView] = useState(() =>
+    localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'todo',
+  )
   const [day, setDay] = useState(todayISO())
   const [today, setToday] = useState(todayISO())
   const [blocks, setBlocks] = useState([])
@@ -25,10 +35,12 @@ export default function App() {
 
   const contentRef = useRef(null)
   const scrollerRef = useRef(null)
+  const captureRef = useRef(null)
   const ghostRef = useRef(null) // mirrors `ghost` so pointerup reads the live value
   const movedRef = useRef(false)
 
   useEffect(() => { applyTheme(theme) }, [theme])
+  useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
 
   const load = useCallback(async () => {
     try {
@@ -60,7 +72,7 @@ export default function App() {
     if (!scrollerRef.current) return
     const focusMin = day === todayISO() ? nowMin - 30 : 7 * 60
     scrollerRef.current.scrollTop = Math.max(0, (focusMin / 60) * HOUR_PX - 60)
-  }, [day]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [day, view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setGhostValue = (g) => { ghostRef.current = g; setGhost(g) }
 
@@ -164,12 +176,39 @@ export default function App() {
     }
   }
 
+  /** Adding to a section drops the task after whatever is already there, rather
+   *  than on top of it. "Anytime" means the inbox. */
+  const addToSection = async (key) => {
+    const body = { title: 'New task', duration_min: 30 }
+    if (key !== 'anytime') {
+      const inSection = blocks
+        .filter((b) => bucketOf(b.start_min) === key)
+        .sort((a, b) => a.start_min - b.start_min)
+      const last = inSection[inSection.length - 1]
+      const start = last
+        ? last.start_min + last.duration_min + SNAP_MIN
+        : SECTION_START[key] ?? 9 * 60
+      body.day = day
+      body.start_min = snap(Math.min(start, DAY_MIN - 30))
+    }
+    try {
+      const created = await api.create(body)
+      await load()
+      setSelectedId(created.id)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const scheduleAt = async (e) => {
     if (e.target.closest('.block')) return // double-clicking a block is not a create
     const rect = contentRef.current.getBoundingClientRect()
     const start = snap(((e.clientY - rect.top) / HOUR_PX) * 60)
+    // Near midnight there is no room for half an hour: take what fits rather
+    // than asking the API for a block that runs off the end of the day.
+    const duration = Math.max(SNAP_MIN, Math.min(30, DAY_MIN - start))
     try {
-      await api.create({ title: 'New block', day, start_min: start, duration_min: 30 })
+      await api.create({ title: 'New block', day, start_min: start, duration_min: duration })
       await load()
     } catch (err) {
       setError(err.message)
@@ -190,6 +229,15 @@ export default function App() {
     }
   }
 
+  const toggleDone = async (block) => {
+    try {
+      await api.patch(block.id, { done: !block.done })
+      await load()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   const remove = async () => {
     try {
       await api.remove(selectedId)
@@ -201,27 +249,31 @@ export default function App() {
   }
 
   const planned = blocks.reduce((n, b) => n + b.duration_min, 0)
+  const layout = ['layout']
+  if (view === 'calendar') layout.push('with-rail')
+  if (selected) layout.push('with-editor')
 
   return (
-    <div className={`layout${selected ? ' with-editor' : ''}`}>
-      <aside className="side">
-        <h1 className="brand">sundial</h1>
-        <Inbox
-          items={inbox}
-          draft={draft}
-          selectedId={selectedId}
-          onDraft={setDraft}
-          onCapture={capture}
-          onPointerDown={beginDrag}
-          onSelect={setSelectedId}
-        />
-      </aside>
+    <div className={layout.join(' ')}>
+      {view === 'calendar' && (
+        <aside className="side">
+          <h1 className="brand">sundial</h1>
+          <Inbox
+            items={inbox}
+            draft={draft}
+            selectedId={selectedId}
+            onDraft={setDraft}
+            onCapture={capture}
+            onPointerDown={beginDrag}
+            onSelect={setSelectedId}
+          />
+        </aside>
+      )}
 
       <main className="day">
         <Header
           day={day}
           today={today}
-          dayName={dayLabel(day, today)}
           tally={`${durText(planned)} planned · ${durText(Math.max(DAY_MIN - planned, 0))} open`}
           week={week}
           theme={theme}
@@ -230,30 +282,52 @@ export default function App() {
           onShift={(delta) => setDay(shiftDay(day, delta))}
           onTheme={toggleTheme}
         />
-        <Timeline
-          day={day}
-          today={today}
-          blocks={blocks}
-          nowMin={nowMin}
-          selectedId={selectedId}
-          drag={drag}
-          ghost={ghost}
-          contentRef={contentRef}
-          scrollerRef={scrollerRef}
-          onDoubleClick={scheduleAt}
-          onPointerDown={beginDrag}
-          onSelect={setSelectedId}
-        />
+
+        {view === 'todo' ? (
+          <div className="view">
+            <Agenda
+              blocks={blocks}
+              inbox={inbox}
+              draft={draft}
+              captureRef={captureRef}
+              onDraft={setDraft}
+              onCapture={capture}
+              onOpen={setSelectedId}
+              onToggle={toggleDone}
+              onAddAt={addToSection}
+            />
+          </div>
+        ) : (
+          <div className="view is-timeline">
+            <Timeline
+              day={day}
+              today={today}
+              blocks={blocks}
+              nowMin={nowMin}
+              selectedId={selectedId}
+              drag={drag}
+              ghost={ghost}
+              contentRef={contentRef}
+              scrollerRef={scrollerRef}
+              onDoubleClick={scheduleAt}
+              onPointerDown={beginDrag}
+              onSelect={setSelectedId}
+            />
+          </div>
+        )}
       </main>
 
       {selected && (
         <Editor
           block={selected}
+          today={today}
           onChange={change}
           onRemove={remove}
           onClose={() => setSelectedId(null)}
         />
       )}
+
+      <TabBar view={view} onPick={setView} />
     </div>
   )
 }

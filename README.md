@@ -43,15 +43,23 @@ a bug waiting to happen.
 
 ## Using it
 
-- Type in the inbox box, press Enter. Nothing gets a time until you give it one.
-- Drag an inbox item onto the timeline to schedule it. It lands under the pointer.
-- Drag a block to move it; drag its bottom edge to change the length.
-- Double-click empty timeline space for a 30-minute block.
-- Click a block for icon, colour, notes, length, done, delete.
-- The strip across the top is the week, with a bar showing how booked each day is.
-- `☀`/`☾` switches theme; the choice is remembered, and follows your system by default.
-- Add it to your iPhone home screen from Safari — it is a real PWA, with an offline
-  shell and a service worker already listening for notifications.
+Two views, switched from the bar at the bottom; the app remembers which one you were in.
+
+**To-do** (the way in) — the day cut into Anytime / Morning / Afternoon / Evening, each
+with a count. White cards, a coloured icon circle, a checkbox on the right. Adding to a
+section drops the task after whatever is already in that part of the day rather than on
+top of it. "Anytime" is the inbox.
+
+**Calendar** — a 24-hour canvas. Drag to move a block, drag its bottom edge to change
+the length, drag from the inbox rail to schedule, double-click empty space for a short
+block.
+
+Shared by both: the week strip (today in purple, the day you are viewing on a pill), a
+`☀`/`☾` theme switch that is remembered and follows your system by default, and a
+detail panel for icon, colour, notes, length, start time, done and delete.
+
+Add it to your iPhone home screen from Safari — it is a real PWA, with an offline
+shell and a service worker already listening for notifications.
 
 ## Checks
 

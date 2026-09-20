@@ -51,6 +51,8 @@ const spawn = async (body) => {
 // ---- seed ----
 const walk = await spawn({ title: 'ui-check walk', day: today, start_min: 420, duration_min: 60, color: 'emerald' })
 const work = await spawn({ title: 'ui-check deep work', day: today, start_min: 600, duration_min: 60, color: 'violet' })
+const pm = await spawn({ title: 'ui-check pm', day: today, start_min: 14 * 60, duration_min: 30, color: 'amber' })
+const eve = await spawn({ title: 'ui-check eve', day: today, start_min: 19 * 60, duration_min: 30, color: 'indigo' })
 const loose = await spawn({ title: 'ui-check inbox item', duration_min: 30 })
 
 const browser = await chromium.launch()
@@ -60,12 +62,62 @@ page.on('pageerror', (e) => consoleErrors.push(String(e)))
 page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()))
 
 await page.goto(BASE, { waitUntil: 'networkidle' })
-await page.waitForSelector('.content .block')
 
-// ---- what rendered ----
+// ---- the to-do list is home ----
+{
+  check('it opens on the to-do list, not the timeline', (await page.locator('.agenda').count()) === 1)
+  check('with one capture field', (await page.locator('.capture-card input').count()) === 1)
+  check('and the four parts of the day', (await page.locator('.section-pill').count()) === 4)
+
+  const inSection = (section, text) =>
+    page.locator(`${section} .card`).filter({ hasText: text }).count()
+
+  check('a 9am task sits under Morning', (await inSection('.section-morning', 'ui-check walk')) === 1)
+  check('a 2pm task sits under Afternoon', (await inSection('.section-afternoon', 'ui-check pm')) === 1)
+  check('a 7pm task sits under Evening', (await inSection('.section-evening', 'ui-check eve')) === 1)
+  check('unscheduled work waits under Anytime', (await inSection('.section-anytime', 'ui-check inbox item')) === 1)
+
+  const counts = await page.locator('.section-pill .count').allInnerTexts()
+  check('each section counts what it holds', counts.join(' ') === '(1) (2) (1) (1)', counts.join(' '))
+
+  // the checkbox on a card completes the task
+  const card = page.locator('.section-morning .card').filter({ hasText: 'ui-check walk' }).first()
+  await card.locator('.tick').click()
+  await page.waitForTimeout(300)
+  check('the card checkbox marks it done', (await find(walk.id)).done === true)
+  check('and the card shows it', (await page.locator('.card.done').count()) >= 1)
+  await page.locator('.card.done .tick').first().click()
+  await page.waitForTimeout(300)
+  check('and un-marks it', (await find(walk.id)).done === false)
+
+  // capture from the list
+  await page.locator('.capture-card input').fill('ui-check captured')
+  await page.locator('.capture-card input').press('Enter')
+  await page.waitForTimeout(400)
+  const captured = (await inboxNow()).find((b) => b.title === 'ui-check captured')
+  check('typing in the capture field adds to Anytime', Boolean(captured))
+  check('and it appears on the page', (await inSection('.section-anytime', 'ui-check captured')) === 1)
+  if (captured) made.push(captured.id)
+}
+
+// ---- switching to the timeline ----
+{
+  await page.locator('.tabbar .tab').nth(1).click()
+  await page.waitForSelector('.content .block')
+  check('the tab bar switches to the timeline', (await page.locator('.content').count()) === 1)
+  check('and shows which view you are in', (await page.locator('.tabbar .tab.on').count()) === 1)
+}
+
+// ---- what the timeline rendered ----
 check('24 hour labels drawn', (await page.locator('.hour-label').count()) === 24)
 check('the now line is on today', (await page.locator('.now').count()) === 1)
-check('day label reads "Today"', (await page.locator('.day-label').innerText()).trim() === 'Today')
+check(
+  'the day heading is the weekday, in the serif',
+  /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/.test(
+    (await page.locator('.day-title').innerText()).trim(),
+  ),
+  await page.locator('.day-title').innerText(),
+)
 check(
   'every block the API returns is on the timeline',
   (await page.locator('.content .block').count()) === (await blocksOn(today)).length,
@@ -143,13 +195,37 @@ const boxOf = async (text) => {
 // ---- double-click empty timeline creates a block ----
 {
   const beforeIds = new Set((await blocksOn(today)).map((b) => b.id))
-  const content = await page.locator('.content').boundingBox()
-  const y = Math.min(content.y + content.height - 40, 840)
-  await page.mouse.dblclick(content.x + content.width / 2, y)
-  await page.waitForTimeout(400)
-  const created = (await blocksOn(today)).filter((b) => !beforeIds.has(b.id))
-  check('double-click adds exactly one block', created.length === 1, `${created.length} new`)
-  created.forEach((b) => made.push(b.id))
+  // Aim at a spot that is genuinely empty and clear of the tab bar, rather than
+  // trusting a fixed offset to land somewhere sensible.
+  const spot = await page.evaluate(() => {
+    const content = document.querySelector('.content')
+    const r = content.getBoundingClientRect()
+    const x = r.left + r.width / 2
+    const top = Math.max(r.top + 8, 170)
+    const bottom = Math.min(r.bottom - 8, 780)
+    for (let y = Math.round((top + bottom) / 2); y < bottom; y += 16) {
+      const el = document.elementFromPoint(x, y)
+      if (el && el.classList.contains('content')) return { y, offset: y - r.top }
+    }
+    return null
+  })
+  check('found an empty stretch of timeline to click', spot !== null)
+  if (spot) {
+    const expected = snapMin((spot.offset / 56) * 60)
+    await page.mouse.dblclick(
+      (await page.locator('.content').boundingBox()).x + (await page.locator('.content').boundingBox()).width / 2,
+      spot.y,
+    )
+    await page.waitForTimeout(400)
+    const created = (await blocksOn(today)).filter((b) => !beforeIds.has(b.id))
+    check('double-click adds one block', created.length === 1, `${created.length} new`)
+    check(
+      'landing where you clicked',
+      created[0]?.start_min === expected,
+      `expected ${expected}, got ${created[0]?.start_min}`,
+    )
+    created.forEach((b) => made.push(b.id))
+  }
 }
 
 // ---- double-click on an existing block must NOT create one ----
@@ -191,16 +267,22 @@ const boxOf = async (text) => {
 
 // ---- the week strip ----
 {
-  const week = (await req(`/week?start=${today}`)).days
   check('the week strip draws seven days', (await page.locator('.week-strip .day-pill').count()) === 7)
-  check('every day carries a load bar', (await page.locator('.week-strip .pill-bar i').count()) === 7)
 
   const on = page.locator('.week-strip .day-pill.on')
-  check('the day being viewed is marked', (await on.count()) === 1)
-  const drawn = await on.locator('.pill-bar i').evaluate((el) => el.style.height)
-  const minutes = week.find((d) => d.day === today).minutes
-  const expected = `${Math.round(Math.min(minutes / 480, 1) * 100)}%`
-  check('its bar reflects how booked the day is', drawn === expected, `${drawn} for ${minutes}m planned`)
+  check('the day being viewed is on a pill', (await on.count()) === 1)
+  const shown = (await on.locator('.pill-num').innerText()).trim()
+  check('and it is the date being viewed', shown === String(Number(today.slice(8, 10))), shown)
+  check('today is picked out in the accent', (await page.locator('.week-strip .day-pill.today').count()) === 1)
+
+  await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+  await page.waitForTimeout(300)
+  await page.locator('.today-pill').click()
+  await page.waitForTimeout(300)
+  check(
+    'the Today pill comes back to today',
+    (await page.locator('.day-head input[type="date"]').inputValue()) === today,
+  )
 }
 
 // ---- theme ----
@@ -326,6 +408,16 @@ const boxOf = async (text) => {
     'the inbox empty state appears exactly when the inbox is empty',
     ((await page.locator('.inbox .empty').count()) === 1) === (apiInbox === 0),
   )
+
+  // back to the list: with nothing left, every part of the day offers a way in
+  await page.locator('.tabbar .tab').nth(0).click()
+  await page.waitForTimeout(300)
+  check(
+    'an empty list still offers every part of the day',
+    (await page.locator('.card.empty').count()) === 4,
+    `${await page.locator('.card.empty').count()} placeholders`,
+  )
+  check('and the capture field is still there', (await page.locator('.capture-card input').count()) === 1)
 }
 
 check('no uncaught page errors', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '))

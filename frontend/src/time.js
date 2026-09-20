@@ -17,15 +17,19 @@ const shiftDay = (iso, delta) => {
   d.setDate(d.getDate() + delta)
   return d.toLocaleDateString('sv-SE')
 }
-const dayLabel = (iso, today) => {
-  if (iso === today) return 'Today'
-  if (iso === shiftDay(today, 1)) return 'Tomorrow'
-  if (iso === shiftDay(today, -1)) return 'Yesterday'
-  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  })
+const weekdayName = (iso) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long' })
+const monthName = (iso) =>
+  new Date(`${iso}T12:00:00`)
+    .toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    .toUpperCase()
+
+/** 12-hour clock, the way a phone shows it: 6:10 AM */
+const clockText = (min) => {
+  const h24 = Math.floor(min / 60) % 24
+  const suffix = h24 < 12 ? 'AM' : 'PM'
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${h12}:${String(min % 60).padStart(2, '0')} ${suffix}`
 }
 
 // Week strip helpers
@@ -48,6 +52,6 @@ const freeGaps = (blocks, minMinutes = 45) => {
 }
 
 export {
-  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay, dayLabel,
-  dowOf, dayNumOf, freeGaps,
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay,
+  weekdayName, monthName, clockText, dowOf, dayNumOf, freeGaps,
 }

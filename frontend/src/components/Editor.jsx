@@ -1,9 +1,9 @@
 import { ICONS } from '../icons'
-import { durText } from '../time'
+import { durText, hhmm } from '../time'
 
 const COLORS = ['slate', 'sky', 'violet', 'amber', 'emerald', 'rose', 'teal', 'indigo']
 
-export default function Editor({ block, onChange, onRemove, onClose }) {
+export default function Editor({ block, today, onChange, onRemove, onClose }) {
   return (
     <aside className="editor" role="dialog" aria-label="Block details">
       <div className="sheet-grip" />
@@ -38,6 +38,28 @@ export default function Editor({ block, onChange, onRemove, onClose }) {
               {glyph}
             </button>
           ))}
+        </div>
+      </label>
+
+      <label className="field">
+        <span>Starts</span>
+        <div className="dur-row">
+          <input
+            type="time"
+            value={block.start_min == null ? '' : hhmm(block.start_min)}
+            onChange={(e) => {
+              const [h, m] = e.target.value.split(':').map(Number)
+              if (Number.isFinite(h)) {
+                onChange({ day: block.day ?? today, start_min: h * 60 + m })
+              }
+            }}
+            aria-label="Start time"
+          />
+          {block.start_min != null && (
+            <button type="button" onClick={() => onChange({ unschedule: true })}>
+              Back to anytime
+            </button>
+          )}
         </div>
       </label>
 
