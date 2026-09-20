@@ -12,8 +12,10 @@ ExecStart=%h/repos/sundial/backend/.venv/bin/uvicorn app:app --app-dir backend -
 Restart=always
 RestartSec=5
 # journal is systemd's default, stated here so it survives a drop-in override that would
-# otherwise send these logs somewhere the next person will not think to look. Read them
-# with: journalctl --user -u sundial -f
+# otherwise send these logs somewhere the next person will not think to look.
+# Read them with: journalctl --user-unit sundial -f
+# (`journalctl --user -u sundial` only finds these where a per-user journal exists, and
+# `journalctl -u sundial` does not match a user unit at all.)
 StandardOutput=journal
 StandardError=journal
 
