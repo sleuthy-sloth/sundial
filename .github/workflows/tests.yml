@@ -18,17 +18,22 @@ jobs:
       - run: python -m pytest -q
         working-directory: backend
 
-      # A unit that does not parse fails on the host at the worst moment, and the failure
-      # is invisible here. systemd-analyze verify prints its errors but still exits 0, so
-      # this asserts on the output instead of trusting the exit code.
+      # A unit that does not parse fails on the host at the worst moment and is invisible
+      # from here. `verify` also insists the ExecStart binary exists, which it does not in
+      # CI, so the unit is checked as syntax with those paths rewritten. It prints errors
+      # and still exits 0, so this asserts on the output rather than the exit status.
       - name: the systemd unit parses
         run: |
-          out=$(systemd-analyze verify deploy/sundial.service 2>&1 || true)
+          mkdir -p "$RUNNER_TEMP/sundial-clone"
+          sed -e 's|%h/repos/sundial/backend/.venv/bin/uvicorn|/bin/true|' \
+              -e "s|%h/repos/sundial|$RUNNER_TEMP/sundial-clone|g" \
+              deploy/sundial.service > "$RUNNER_TEMP/verify-sundial.service"
+          out=$(systemd-analyze verify "$RUNNER_TEMP/verify-sundial.service" 2>&1 || true)
           if [ -n "$out" ]; then
             echo "$out" >&2
             exit 1
           fi
-          echo "deploy/sundial.service is valid"
+          echo "deploy/sundial.service parses"
 
   interface:
     name: Browser checks
