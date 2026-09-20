@@ -1,0 +1,9 @@
+node_modules/
+dist/
+backend/static/
+backend/__pycache__/
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+.venv/
+*.log
