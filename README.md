@@ -69,15 +69,20 @@ Live on the tailnet only, nothing public:
 https://planner.example.ts.net:8445/
 ```
 
-`tailscale serve --https=8445` points at `127.0.0.1:6770`. The app itself is run by a
-systemd user unit, which is *not* installed yet — see `deploy/sundial.service`:
+`tailscale serve --https=8445` points at `127.0.0.1:6770`. The app runs under the
+systemd user unit in `deploy/sundial.service`, installed to
+`~/.config/systemd/user/`:
 
 ```
-install -Dm644 deploy/sundial.service ~/.config/systemd/user/sundial.service
-systemctl --user daemon-reload && systemctl --user enable --now sundial
+systemctl --user status sundial
+systemctl --user restart sundial
+journalctl --user -u sundial -n 50          # or tail the journal
 ```
 
-That survives a reboot; a hand-started process does not.
+Because it is a unit rather than a hand-started process it comes back after a
+reboot (needs `loginctl enable-linger USER`, already on). **A process started by
+hand from a shell does not** — that is exactly how this kept serving 502s to a phone
+while looking fine on the Pi.
 
 ## Not built yet
 
