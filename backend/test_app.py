@@ -189,3 +189,143 @@ def test_week_window_is_bounded_and_validated(client):
     assert len(client.get("/api/week?days=999").json()["days"]) == 31
     assert len(client.get("/api/week?days=0").json()["days"]) == 1
     assert client.get("/api/week?start=nope").status_code == 400
+
+
+# ---- the API contract ----
+# What these cover: payloads SQLite or the date parser can be made to reject *after*
+# the request was accepted. The failure mode is a 500, which is the worst of both
+# worlds — the row is untouched either way, but the caller cannot tell a refusal from
+# a broken server, and the client has no message worth showing.
+
+
+def reload_block(client, block_id):
+    """The block as the API reports it, from whichever list it is in."""
+    data = client.get("/api/day?day=2026-09-21").json()
+    for block in [*data["blocks"], *data["inbox"]]:
+        if block["id"] == block_id:
+            return block
+    raise AssertionError(f"block {block_id} is gone")
+
+
+REFUSED_NULLS = ["title", "duration_min", "color", "icon", "notes", "done"]
+
+
+@pytest.mark.parametrize("field", REFUSED_NULLS)
+def test_explicit_null_on_a_column_that_cannot_hold_one_is_a_4xx(client, field):
+    b = make(client, title="standup", day="2026-09-21", start_min=600)
+    before = reload_block(client, b["id"])
+
+    res = client.patch(f"/api/blocks/{b['id']}", json={field: None})
+
+    assert res.status_code == 400, res.text
+    assert isinstance(res.json()["detail"], str), "the client needs a message it can print"
+    assert reload_block(client, b["id"]) == before
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"day": "2026-09-22", "start_min": None},  # a day with no time
+        {"day": None, "start_min": 700},  # a time with no day
+    ],
+)
+def test_a_half_scheduled_block_is_refused(client, changes):
+    b = make(client, title="standup", day="2026-09-21", start_min=600)
+    before = reload_block(client, b["id"])
+
+    res = client.patch(f"/api/blocks/{b['id']}", json=changes)
+
+    assert res.status_code == 400, res.text
+    assert reload_block(client, b["id"]) == before
+
+
+def test_nulling_both_halves_together_still_unschedules(client):
+    b = make(client, day="2026-09-21", start_min=600)
+    out = client.patch(f"/api/blocks/{b['id']}", json={"day": None, "start_min": None}).json()
+    assert (out["day"], out["start_min"]) == (None, None)
+
+
+def test_a_whitespace_only_title_is_refused(client):
+    b = make(client)
+
+    res = client.patch(f"/api/blocks/{b['id']}", json={"title": "   "})
+    assert res.status_code == 400, res.text
+    assert reload_block(client, b["id"])["title"] == "thing"
+
+    assert client.post("/api/blocks", json={"title": "\t \n"}).status_code == 400
+    assert client.get("/api/health").json()["blocks"] == 1
+
+
+def test_a_title_is_stored_without_its_padding(client):
+    assert make(client, title="  standup  ")["title"] == "standup"
+    b = make(client)
+    out = client.patch(f"/api/blocks/{b['id']}", json={"title": "  standup again  "}).json()
+    assert out["title"] == "standup again"
+
+
+def test_creating_with_an_unknown_colour_is_refused(client):
+    res = client.post("/api/blocks", json={"title": "x", "color": "chartreuse"})
+    assert res.status_code == 400, res.text
+    assert client.get("/api/health").json()["blocks"] == 0
+
+
+@pytest.mark.parametrize("color", sundial.PALETTE)
+def test_create_and_patch_agree_on_every_palette_colour(client, color):
+    b = make(client, title="paint", color=color)
+    assert b["color"] == color
+    assert client.patch(f"/api/blocks/{b['id']}", json={"color": color}).status_code == 200
+
+
+BAD_DAYS = [
+    "20260921",  # the compact form the parser used to accept
+    "2026-9-1",  # right shape, unpadded
+    "26-09-21",
+    "2026/09/21",
+    "2026-09-21T00:00:00",
+    "2026-13-01",
+    "2026-09-32",
+]
+
+
+@pytest.mark.parametrize("day", BAD_DAYS)
+def test_a_non_canonical_day_is_refused_everywhere(client, day):
+    res = client.post("/api/blocks", json={"title": "x", "day": day, "start_min": 600})
+    assert res.status_code == 400, res.text
+    assert client.get("/api/day", params={"day": day}).status_code == 400
+    assert client.get("/api/week", params={"start": day}).status_code == 400
+    assert client.get("/api/health").json()["blocks"] == 0
+
+
+def test_every_accepted_scheduled_block_can_be_fetched_back(client):
+    """The reason for refusing odd input: what the API stores, the API must find."""
+    for n in range(6):
+        make(client, title=f"block {n}", day="2026-09-21", start_min=600 + n * 30, duration_min=15)
+
+    assert len(client.get("/api/day?day=2026-09-21").json()["blocks"]) == 6
+    assert client.get("/api/week?start=2026-09-21").json()["days"][0]["blocks"] == 6
+
+
+def test_a_week_range_that_runs_off_the_calendar_is_refused(client):
+    res = client.get("/api/week", params={"start": "9999-12-31", "days": 31})
+    assert res.status_code == 400, res.text
+    assert client.get("/api/week", params={"start": "9999-12-31", "days": 1}).status_code == 200
+
+
+def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
+    """An installation that stored '20260921' before the refusal existed gets it back."""
+    with sundial.db() as conn:
+        conn.execute(
+            "INSERT INTO blocks (id, title, day, start_min, duration_min, color, icon, notes,"
+            " done, updated_at) VALUES ('legacy', 'old row', '20260921', 600, 30, 'slate', '',"
+            " '', 0, '2026-09-20T00:00:00')"
+        )
+        conn.execute("DELETE FROM schema_version WHERE version = 3")
+
+    assert sundial.migrate() == [3]
+
+    with sundial.db() as conn:
+        rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))
+    assert rows[0]["day"] == "2026-09-21"
+
+    found = client.get("/api/day?day=2026-09-21").json()["blocks"]
+    assert [b["title"] for b in found] == ["old row"]
