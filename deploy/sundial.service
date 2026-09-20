@@ -4,13 +4,18 @@ After=network-online.target
 
 [Service]
 Type=simple
-# Point this at wherever you cloned the repo.
+# Both paths below assume the repo is cloned at ~/repos/sundial. Change them if yours is
+# somewhere else: the unit does not guess, and a wrong WorkingDirectory fails at start.
 WorkingDirectory=%h/repos/sundial
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/repos/sundial/backend/.venv/bin/uvicorn app:app --app-dir backend --host 127.0.0.1 --port 6770
 Restart=always
 RestartSec=5
-# Output goes to the journal: journalctl --user -u sundial -f
+# journal is systemd's default, stated here so it survives a drop-in override that would
+# otherwise send these logs somewhere the next person will not think to look. Read them
+# with: journalctl --user -u sundial -f
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
