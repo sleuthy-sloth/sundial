@@ -2,8 +2,11 @@
 cannot run past midnight. Run with:  cd backend && .venv/bin/pytest -q
 """
 
+import importlib.util
 import os
 import pathlib
+import shutil
+import sqlite3
 import tempfile
 
 os.environ["SUNDIAL_DB"] = str(pathlib.Path(tempfile.mkdtemp()) / "test.db")
@@ -329,3 +332,94 @@ def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
 
     found = client.get("/api/day?day=2026-09-21").json()["blocks"]
     assert [b["title"] for b in found] == ["old row"]
+
+
+# ---- the database, not the API ----
+
+
+def test_the_connection_is_closed_when_the_block_ends():
+    """`with conn` commits and rolls back but does not close — the file handle and the
+    WAL reader survive until the garbage collector happens to run."""
+    with sundial.db() as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
+
+
+def test_a_failed_write_leaves_no_half_row():
+    with pytest.raises(RuntimeError):
+        with sundial.db() as conn:
+            conn.execute(
+                "INSERT INTO blocks (id, title, duration_min, color, icon, notes, done,"
+                " updated_at) VALUES ('half', 'half a row', 30, 'slate', '', '', 0, 'x')"
+            )
+            raise RuntimeError("something went wrong after the write")
+
+    with sundial.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM blocks").fetchone()["n"] == 0
+
+
+def test_app_connections_enforce_foreign_keys():
+    with sundial.db() as conn:
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+def test_deleting_a_calendar_takes_its_events_with_it():
+    """002 declares ON DELETE CASCADE. It does nothing unless the connection turns
+    foreign keys on, which is off by default and was never turned on."""
+    with sundial.db() as conn:
+        conn.execute("INSERT INTO calendars (ref, provider, name) VALUES ('c1', 'icloud', 'Home')")
+        conn.execute(
+            "INSERT INTO events (id, calendar_ref, provider, uid, title, start_utc, end_utc,"
+            " updated_at) VALUES ('e1', 'c1', 'icloud', 'u1', 'Standup',"
+            " '2026-09-21T16:00:00+00:00', '2026-09-21T16:30:00+00:00', '2026-09-21T00:00:00+00:00')"
+        )
+
+    with sundial.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 1
+        conn.execute("DELETE FROM calendars WHERE ref = 'c1'")
+
+    with sundial.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 0
+
+
+def test_a_failing_migration_leaves_nothing_behind(tmp_path, monkeypatch):
+    """A migration that dies half way must not leave the schema advanced without the
+    version record — that combination cannot be retried or repaired by rerunning."""
+    staged = tmp_path / "migrations"
+    staged.mkdir()
+    for sql in sundial.MIGRATIONS.glob("*.sql"):
+        shutil.copy(sql, staged)
+    monkeypatch.setattr(sundial, "MIGRATIONS", staged)
+
+    probe = staged / "900_probe.sql"
+    probe.write_text("ALTER TABLE blocks ADD COLUMN probe TEXT;\nSELECT * FROM no_such_table;\n")
+
+    with pytest.raises(sqlite3.OperationalError):
+        sundial.migrate()
+
+    with sundial.db() as conn:
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+        versions = [r["version"] for r in conn.execute("SELECT version FROM schema_version")]
+
+    assert "probe" not in columns, "the DDL from a failed migration is still in the schema"
+    assert 900 not in versions
+
+    probe.write_text("ALTER TABLE blocks ADD COLUMN probe TEXT;\n")
+    assert sundial.migrate() == [900], "the corrected migration cannot be applied"
+    with sundial.db() as conn:
+        assert "probe" in {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+
+
+def test_the_backup_script_points_at_the_database_the_app_uses():
+    """Two places work out the default path. If they drift, the backup quietly copies
+    something other than the database the app is serving."""
+    spec = importlib.util.spec_from_file_location(
+        "sundial_backup_for_app",
+        pathlib.Path(sundial.__file__).resolve().parent.parent / "scripts" / "backup.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.default_db_path() == sundial.DB_PATH

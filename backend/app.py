@@ -1,7 +1,7 @@
 """sundial — a visual day planner.
 
 One process: JSON API + the built SPA on the same origin (no CORS anywhere).
-SQLite because it is one user and a backup should be `cp sundial.db backup.db`.
+SQLite because it is one user, and `scripts/backup.py` copies it safely.
 
     uvicorn app:app --host 127.0.0.1 --port 6770
 """
@@ -11,11 +11,11 @@ from __future__ import annotations
 import os
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -30,11 +30,28 @@ PALETTE = ["slate", "sky", "violet", "amber", "emerald", "rose", "teal", "indigo
 DAY_MIN = 1440
 
 
-def db() -> sqlite3.Connection:
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
+    """One connection per use: commit it, roll it back, and close it either way.
+
+    Two things this settles. A connection's own `with` block commits or rolls back but
+    does not close it, so the handle — and whatever reader it held on the WAL — lived
+    until the garbage collector happened to run. And foreign keys are off by default in
+    SQLite, per connection, so the `ON DELETE CASCADE` in 002 was decorative: deleting a
+    calendar left its events behind.
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -65,6 +82,13 @@ def migrate() -> list[int]:
 
     One `.sql` file per change, numbered; the number is the version. Adding a column
     later means adding a file, never editing one that has already run.
+
+    Each migration and its version record commit together. `executescript` commits
+    whatever is pending before it runs, so the transaction is opened *inside* the script
+    rather than around it: a migration that fails half way takes its own DDL down with
+    it instead of leaving a column that the version table says is not there — a state
+    that cannot then be retried, only repaired by hand. Migrations must not open or
+    commit transactions themselves.
     """
     applied: list[int] = []
     if not MIGRATIONS.is_dir():
@@ -80,8 +104,18 @@ def migrate() -> list[int]:
                 raise RuntimeError(f"migration {path.name} must start with a number") from None
             if version <= current:
                 continue
-            conn.executescript(path.read_text())
-            conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+            script = (
+                "BEGIN;\n"
+                f"{path.read_text()}\n"
+                f"INSERT INTO schema_version (version) VALUES ({version});\n"
+                "COMMIT;"
+            )
+            try:
+                conn.executescript(script)
+            except Exception:
+                conn.rollback()
+                raise
+            current = version
             applied.append(version)
     return applied
 
