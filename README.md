@@ -35,7 +35,8 @@ time between tasks drawn rather than implied, and a detail panel for icon, colou
 length, start time, done and delete.
 
 Install it to your phone's home screen from Safari or Chrome — it is a real PWA, with an
-offline shell and a service worker already listening for notifications.
+offline shell. The service worker already handles a push notification; nothing sends one
+yet, and nothing can until a sending side exists.
 
 ### The house rules
 
@@ -127,6 +128,11 @@ command gives you HTTPS that only your own devices can reach:
 tailscale serve --bg --https=8445 http://127.0.0.1:6770
 ```
 
+**There is no login.** sundial trusts whoever reaches the port, which is the right trade for
+one person's planner on a private tailnet and the wrong one for anything public. Keep it on
+a tailnet or behind a proxy that authenticates. `tailscale serve` is private to your own
+devices; `tailscale funnel` on the same port would publish the day to the internet.
+
 `deploy/sundial.service` is a systemd user unit — adjust the paths to where you cloned
 this, then:
 
@@ -140,6 +146,11 @@ Use a unit rather than a hand-started process. A process started from a shell do
 come back after a reboot, and the failure is quiet: the reverse proxy keeps its mapping
 while the port behind it is empty, so the app looks dead from a phone while every check
 you run on the host still passes.
+
+## Branches
+
+`main` is the published state. Work lands on `development` and merges into `main` when it
+is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
