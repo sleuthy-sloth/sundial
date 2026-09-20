@@ -83,8 +83,9 @@ backend/test_*.py           77 tests
 frontend/src/App.jsx        state and layout only
 frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
                             Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   57 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   76 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
+frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
 ```
@@ -131,13 +132,16 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 77 tests
-cd frontend && npm run check:ui                        # 57 browser checks
+cd frontend && npm test                                # 8 unit tests, node --test
+cd frontend && npm run check:ui                        # 76 browser checks
 ```
 
 The browser checks drive headless Chromium with real mouse input — actual drags, not
 synthesised events — then read the API back to confirm the server agrees with what the
 screen did. They derive their expectations from the API instead of hardcoding counts,
-seed their own data, and delete exactly what they created.
+seed their own data, and delete exactly what they created. They also hold requests open,
+answer them out of order and fail them on purpose, because a phone on a bad connection
+does all three and none of it may lose what was typed.
 
 To regenerate the screenshots above, start a second instance against a throwaway database
 and run the shooter. It refuses to run against a database that already has plans in it:
