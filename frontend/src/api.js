@@ -1,3 +1,20 @@
+/** FastAPI answers a validation failure with a list of field errors, which used to
+ *  reach the screen as "[object Object]". */
+function message(body, res) {
+  const detail = body?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((e) =>
+        [e.loc?.filter((part) => part !== 'body').join('.'), e.msg || 'invalid']
+          .filter(Boolean)
+          .join(': '),
+      )
+      .join('; ')
+  }
+  return `${res.status} ${res.statusText}`
+}
+
 async function req(path, options) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -5,7 +22,7 @@ async function req(path, options) {
   })
   if (res.status === 204) return null
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`)
+  if (!res.ok) throw new Error(message(body, res))
   return body
 }
 

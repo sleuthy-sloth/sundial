@@ -180,7 +180,11 @@ def get_week(start: Optional[str] = None, days: int = 7) -> dict:
     start = start or today()
     _validate_day(start)
     first = _date.fromisoformat(start)
-    span = [(first + timedelta(days=i)).isoformat() for i in range(days)]
+    try:
+        span = [(first + timedelta(days=i)).isoformat() for i in range(days)]
+    except OverflowError:
+        # A start near the end of the calendar reaches past it: a refusal, not a 500.
+        raise HTTPException(400, "that range runs past the end of the calendar") from None
     with db() as conn:
         rows = conn.execute(
             """SELECT day, COUNT(*) AS blocks, SUM(duration_min) AS minutes
@@ -202,6 +206,11 @@ def get_week(start: Optional[str] = None, days: int = 7) -> dict:
 @app.post("/api/blocks", status_code=201)
 def create_block(body: BlockIn) -> dict:
     block_id = uuid.uuid4().hex[:12]
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "a block needs a title")
+    if body.color is not None and body.color not in PALETTE:
+        raise HTTPException(400, f"unknown color {body.color!r}")
     color = body.color or PALETTE[_pick_color()]
     if body.day is not None:
         _validate_day(body.day)
@@ -216,7 +225,7 @@ def create_block(body: BlockIn) -> dict:
             """INSERT INTO blocks
                  (id, title, day, start_min, duration_min, color, icon, notes, done, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            (block_id, body.title.strip(), body.day, body.start_min,
+            (block_id, title, body.day, body.start_min,
              body.duration_min, color, body.icon.strip(), body.notes, now_iso()),
         )
     return _get_block(block_id)
@@ -230,27 +239,41 @@ def patch_block(block_id: str, body: BlockPatch) -> dict:
     if body.unschedule:
         fields |= {"day": None, "start_min": None}
 
-    start_min = fields.get("start_min", current["start_min"])
-    day = fields.get("day", current["day"])
-    duration = fields.get("duration_min", current["duration_min"])
+    # Only the scheduling pair may be nulled. Every other field has a NOT NULL column
+    # behind it, so an explicit null travelled to SQLite and came back as a 500.
+    for key, value in fields.items():
+        if value is None and key not in ("day", "start_min"):
+            raise HTTPException(400, f"{key} cannot be null")
+
+    if "title" in fields:
+        fields["title"] = fields["title"].strip()
+        if not fields["title"]:
+            raise HTTPException(400, "a block needs a title")
+    if "color" in fields and fields["color"] not in PALETTE:
+        raise HTTPException(400, f"unknown color {fields['color']!r}")
 
     # Day and start travel together: dragging onto the timeline sets both, and
     # clearing one without the other would leave a block scheduled nowhere.
     if "day" in fields and "start_min" not in fields:
         if fields["day"] is None:
             fields["start_min"] = None
-        elif start_min is None:
+        elif current["start_min"] is None:
             raise HTTPException(400, "scheduling a block needs start_min too")
     if "start_min" in fields and "day" not in fields:
         if fields["start_min"] is None:
             fields["day"] = None
-        elif day is None:
+        elif current["day"] is None:
             fields["day"] = current["day"] or today()
-    if "color" in fields and fields["color"] is not None and fields["color"] not in PALETTE:
-        raise HTTPException(400, f"unknown color {fields['color']!r}")
-    if fields.get("day") is not None:
-        _validate_day(fields["day"])
-    if start_min is not None:
+
+    # Judge the block as it will be, not the fragment that arrived: a pair written in
+    # one request can still land half scheduled, and that is what the CHECK is for.
+    day = fields.get("day", current["day"])
+    start_min = fields.get("start_min", current["start_min"])
+    duration = fields.get("duration_min", current["duration_min"])
+    if (day is None) != (start_min is None):
+        raise HTTPException(400, "a block is either scheduled or in the inbox, not half of each")
+    if day is not None:
+        _validate_day(day)
         _check_fits(start_min, duration)
 
     if not fields:
@@ -279,6 +302,15 @@ def _get_block(block_id: str) -> dict:
 
 
 def _validate_day(day: str) -> None:
+    """Only the canonical 'YYYY-MM-DD' gets through.
+
+    Python's parser also takes the compact 'YYYYMMDD', which used to be stored exactly
+    as sent — and then matched no day or week query, because that string sorts outside
+    every canonical range. A block nobody can find is worse than a refused request, so
+    the shape is checked here instead of trusted from the parser.
+    """
+    if len(day) != 10 or day[4] != "-" or day[7] != "-":
+        raise HTTPException(400, f"day must be YYYY-MM-DD, got {day!r}")
     try:
         _date.fromisoformat(day)
     except ValueError:
