@@ -2,6 +2,7 @@ import { version } from '../../package.json'
 
 import CalendarPanel from './CalendarPanel'
 import Notifications from './Notifications'
+import Switch from './Switch'
 
 /**
  * The app's own settings, in a tab of their own rather than in a column beside your day.
@@ -48,9 +49,14 @@ export default function Profile({
       <div className="set-row">
         <span className="set-label">Theme</span>
         <span className="set-value">{theme}</span>
-        <button type="button" className="theme-row" onClick={onTheme}>
-          Switch to {theme === 'dark' ? 'light' : 'dark'}
-        </button>
+        {/* The header keeps its quick toggle; this is the same setting stated as a setting.
+            A distinct class from that button, or the two controls are one selector. */}
+        <Switch
+          className="theme-switch"
+          checked={theme === 'dark'}
+          onChange={onTheme}
+          label="Dark theme"
+        />
       </div>
 
       <Notifications />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { availability, current, disable, enable, explain } from '../push'
+import Switch from './Switch'
 
 /**
  * Turning on "tell me when a block starts".
@@ -99,30 +100,29 @@ export default function Notifications() {
         <span className="set-value push-state">
           {state === 'checking' ? 'checking\u2026' : state === 'on' ? 'On' : 'Off'}
         </span>
+        {state !== 'blocked' && (
+          <Switch
+            className="push-toggle"
+            checked={state === 'on'}
+            disabled={busy || state === 'checking'}
+            onChange={(on) => (on ? turnOn() : turnOff())}
+            label="Tell me when a block starts"
+          />
+        )}
       </div>
 
-      {state === 'blocked' ? (
-        <p className="note push-blocked">{why}</p>
-      ) : (
+      {state === 'blocked' && <p className="note push-blocked">{why}</p>}
+
+      {state === 'on' && (
         <div className="set-row push-controls">
           <button
             type="button"
-            className="theme-row push-toggle"
-            onClick={state === 'on' ? turnOff : turnOn}
-            disabled={busy || state === 'checking'}
+            className="push-btn push-test"
+            onClick={sendTest}
+            disabled={busy}
           >
-            {state === 'on' ? 'Turn off on this device' : 'Turn on for this device'}
+            Send one now
           </button>
-          {state === 'on' && (
-            <button
-              type="button"
-              className="theme-row push-test"
-              onClick={sendTest}
-              disabled={busy}
-            >
-              Send one now
-            </button>
-          )}
         </div>
       )}
 

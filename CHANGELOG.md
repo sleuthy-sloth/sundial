@@ -1,5 +1,45 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.9.0 — 2026-09-21
+
+The app had two things you turn on and off, and both of them were buttons that described what
+they would do instead of what is true: “Switch to dark”, “Turn on for this device”. A control
+that names its own next action is a small tax every time you read it — you have to work out the
+present from the future. They are switches, so they now say the present by where the thing sits.
+
+- **One switch, two settings.** The theme in the profile and “tell me when a block starts” are
+  the same question asked twice, so they are the same component rather than two controls that
+  merely resemble each other. The header keeps its quick toggle; it and the profile switch are
+  one setting, and the check that says so is that turning one moves the other.
+- **Borrowed from uiverse.io, and rebuilt rather than pasted.** The mechanics — a real checkbox,
+  a slider that translates on `:checked` — are the standard ones. Nothing else was kept: the
+  survey of the library's 3,802 elements found 601 that are plain CSS with no shadow, gradient,
+  blur or infinite animation, which is the bar this app's own stylesheet already sets. All 103
+  background patterns are gradients, 696 of 718 loaders animate forever, and most switches hide
+  their input with `display: none`.
+- **The knob is ink in both states, and that is a measurement rather than a taste.** A parchment
+  knob on the amber fill is 2.6:1 and disappears; ink on it is 5.36:1 light and 6.47:1 dark, so
+  the track carries the state and the knob stays legible.
+- **The track's edge is `--muted`, not `--line`.** A hairline composites to 1.45:1 against the
+  panel, which leaves a control with no visible boundary; `--muted` is 5.16:1 light and 6.26:1
+  dark, clear of the 3:1 a control edge is asked for. The amber fill is itself 2.80:1 on light
+  parchment and that is allowed, because the fill is not the signal — the knob's position is, at
+  13.26:1 off and 5.36:1 on.
+- **The input stays a real checkbox, and stays reachable.** It is hidden by opacity over a
+  full-size box, never by `display: none`, which would take it out of the tab order and put the
+  control beyond a keyboard.
+- **The focus ring is drawn by the track.** An invisible input has nowhere to draw one, so the
+  track draws it: the same 2px solar mark at the same 2px offset as every other control. Nothing
+  here opts out of the ring, and the check that asserts it presses Tab first, because a
+  programmatic focus does not match `:focus-visible` and would pass while asserting nothing.
+
+Motion is `--t-quick`, the faster of the two speeds this app has, and it is switched off along
+with everything else by the reduced-motion rule. Four checks hold the switch to being a switch
+rather than a styled div: it carries `role="switch"`, a keyboard can reach it, it draws the ring,
+and its position agrees with the theme actually in force — which is the same principle the
+notifications panel follows, that the state shown is the browser's answer and not the last thing
+clicked.
+
 ## 0.8.0 — 2026-09-21
 
 A notification is the only thing this app says without being asked, so most of the work here was
