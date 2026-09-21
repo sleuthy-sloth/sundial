@@ -53,6 +53,12 @@ jobs:
   interface:
     name: Browser checks
     runs-on: ubuntu-latest
+    env:
+      # One of the checks types a credential and the server writes it to a file. Pointed
+      # outside the checkout so it can never be mistaken for a real one — and the suite fails
+      # rather than running that check if it is not told where the file is.
+      SUNDIAL_ICLOUD_ENV: ${{ runner.temp }}/icloud.env
+      SUNDIAL_CHECK_ICLOUD_ENV: ${{ runner.temp }}/icloud.env
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

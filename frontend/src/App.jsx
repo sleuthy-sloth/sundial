@@ -46,6 +46,7 @@ export default function App() {
   const [calendarDay, setCalendarDay] = useState({ day: null, events: [] })
   const [syncing, setSyncing] = useState(false)
   const [calendarNote, setCalendarNote] = useState('')
+  const [connecting, setConnecting] = useState(false)
   const timers = useRef([])
 
   const contentRef = useRef(null)
@@ -141,6 +142,35 @@ export default function App() {
     askedToSync.current = true
     runSync(900)
   }, [view, calendar, runSync])
+
+  /** Typing a credential into the panel: the only secret this app is ever given.
+
+   *  It goes straight to the server that writes the file, and the reply is the provider's
+   *  state rather than an echo. Then it syncs — "is that password right?" is the only question
+   *  anybody has at that moment, and nothing else can answer it. Returns a sentence when it
+   *  did not work, so the panel can put it beside the fields.
+   */
+  const connectCalendar = useCallback(
+    async (provider, fields) => {
+      setConnecting(true)
+      try {
+        const state = await api.saveCredentials(provider, fields)
+        setCalendarNote(state.why || 'Connected. Reading the calendar…')
+        await loadCalendar(day)
+        // The auto-sync below only ever runs once; connecting is a second reason to ask.
+        // Deliberately not awaited: whether iCloud accepts the password is the sync's answer,
+        // and the form should not sit there spinning while a server thinks about it.
+        askedToSync.current = true
+        runSync()
+        return ''
+      } catch (e) {
+        return e.message
+      } finally {
+        setConnecting(false)
+      }
+    },
+    [day, loadCalendar, runSync],
+  )
 
   const toggleCalendar = useCallback(
     async (ref, enabled) => {
@@ -429,6 +459,8 @@ export default function App() {
             note={calendarNote}
             onSync={runSync}
             onToggle={toggleCalendar}
+            onConnect={connectCalendar}
+            connecting={connecting}
           />
         </aside>
       )}

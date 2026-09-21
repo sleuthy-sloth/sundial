@@ -1,5 +1,31 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.5.0 — 2026-09-21
+
+A credential can be typed into the panel — the step that was missing between a sync that works
+and a setup that works.
+
+- **Connect from the calendar rail.** An Apple ID and an app-specific password, written into
+  `icloud.env` at 0600. Until now, connecting meant editing a file on the box, which for a
+  single-user app served from a Pi is most of the work.
+- **One write path, one allowlist.** `env_file.py` is the 0600-by-rename writer both credential
+  files now use — extracted rather than copied — and `credentials.py` is the table of which keys
+  each file may hold. The refresh token is deliberately not in that table: Google's callback
+  owns it, and a route that could accept one could point sundial at somebody else's calendar.
+- **A value cannot smuggle in a second key.** The file is one key per line, so a value holding a
+  line break is refused rather than written. That rule and the allowlist were both checked by
+  removing them and watching the tests fail.
+- **The reply is a state, never an echo.** Saving answers with whether that provider is
+  configured and why not. What was typed is never returned, logged, or repeated in an error.
+- **"Saved" is not "worked".** The panel says connected as soon as the file is right; the sync
+  it then runs is the only thing that can say whether the password is, so a wrong password reads
+  as a calendar error and not as a form error.
+- **The suite cleans up after itself.** The browser check that types a credential writes to a
+  file the suite is told about and removes it again — and fails with instructions rather than
+  writing the repository's own `icloud.env` if it is not told where that file is.
+- **iCloud is still the only provider switched on.** Google gained a way to receive its client
+  id and secret; it still says "coming soon".
+
 ## 0.4.0 — 2026-09-21
 
 Google, built and not switched on — plus the second provider the engine needed to have.

@@ -1466,14 +1466,36 @@ const wantThemeLight = async () => {
 
   const panel = await page.locator('.cal').innerText().catch(() => '')
   check(
-    'with no credentials the calendar panel says what to create',
-    /not connected/.test(panel) && /icloud\.env/.test(panel),
+    'with no credentials the calendar panel says what it needs',
+    /not connected/.test(panel) && /app-specific password/.test(panel),
     panel.split('\n').filter(Boolean).slice(0, 2).join(' · '),
   )
   check(
     'and offers no Sync control that could only fail',
     (await page.locator('.cal-sync').count()) === 0,
     'no sync button while unconfigured',
+  )
+  check(
+    'and offers one control that can actually connect it',
+    (await page.locator('.cal-connect-open').count()) === 1,
+    'a Connect control, rather than only a sentence about a file',
+  )
+
+  await page.locator('.cal-connect-open').click()
+  const opened = await page.locator('.cal').innerText()
+  check(
+    'and the form it opens asks for both things, in words',
+    (await page.locator('.cal-input').count()) === 2 &&
+      /Apple ID/.test(opened) &&
+      /App-specific password/.test(opened),
+    'two fields, each under a label',
+  )
+  await page.locator('.cal-cancel').click()
+  check(
+    'and lets you back out of it',
+    (await page.locator('.cal-input').count()) === 0 &&
+      (await page.locator('.cal-connect-open').count()) === 1,
+    'Cancel closes the form without connecting anything',
   )
   check(
     'and says what is not switched on yet, in words rather than a dead control',
@@ -1756,6 +1778,84 @@ const wantThemeLight = async () => {
   }
 }
 
+
+// ---- connecting from the panel --------------------------------------------------------------
+// Last, because it leaves a credential file behind. The suite will not run it unless it is told
+// where the server was told to keep that file: without knowing, the write lands wherever the
+// server's default is — and on the box that serves sundial, that default is a real one. So a
+// missing answer here is a failed check with instructions rather than a quiet clobber.
+const disposableIcloud = process.env.SUNDIAL_CHECK_ICLOUD_ENV
+check(
+  'the suite knows where the server keeps its credentials file',
+  Boolean(disposableIcloud),
+  'set SUNDIAL_CHECK_ICLOUD_ENV to the same path as the server\'s SUNDIAL_ICLOUD_ENV',
+)
+
+if (disposableIcloud) {
+  const fs2 = require('node:fs')
+  const appleId = 'browser-check@example.com'
+  const appPassword = 'not-a-real-password-a1b2'
+
+  await page.locator('.view-switch button').nth(1).click()
+  await page.waitForTimeout(400)
+  if ((await page.locator('.cal-connect-open').count()) > 0) {
+    await page.locator('.cal-connect-open').click()
+  }
+  await page.locator('.cal-input').nth(0).fill(appleId)
+  await page.locator('.cal-input').nth(1).fill(appPassword)
+  await page.locator('.cal-save').click()
+
+  let connected = true
+  try {
+    await page.waitForSelector('.cal-connect', { state: 'detached', timeout: 20000 })
+  } catch {
+    connected = false
+  }
+  check(
+    'typing a credential into the panel writes it and the panel takes it',
+    connected,
+    await page.locator('.cal-why').innerText().catch(() => 'the form is still there'),
+  )
+
+  // What is on disk is the whole point: 0600, and the values that were typed.
+  let stored = ''
+  let mode = 0
+  try {
+    stored = fs2.readFileSync(disposableIcloud, 'utf8')
+    mode = fs2.statSync(disposableIcloud).mode & 0o777
+  } catch {
+    stored = ''
+  }
+  check(
+    'and the file it wrote is 0600 and holds what was typed',
+    stored.includes(`ICLOUD_USERNAME=${appleId}`) &&
+      stored.includes(`ICLOUD_APP_PASSWORD=${appPassword}`) &&
+      mode === 0o600,
+    `mode ${mode.toString(8)}, ${stored.split('\n').filter(Boolean).length} lines`,
+  )
+
+  // And not in the page: not in a field left behind, not anywhere in the DOM.
+  const leftBehind = await page.evaluate(
+    () =>
+      [...document.querySelectorAll('input, textarea')].map((el) => el.value).join('|') +
+      document.documentElement.outerHTML,
+  )
+  check(
+    'and the password is not left in the page afterwards',
+    !leftBehind.includes(appPassword),
+    'not in a field, not in the markup',
+  )
+  check(
+    'and a configured calendar offers Sync where it offered Connect',
+    (await page.locator('.cal-sync').count()) === 1 &&
+      (await page.locator('.cal-connect-open').count()) === 0,
+    'the control that replaces it can do something',
+  )
+
+  // Put it back, like the block seeds: a check that leaves a credential behind makes the next
+  // run start from a different state than this one and turns "no credentials" into a lie.
+  fs2.rmSync(disposableIcloud, { force: true })
+}
 
 check('no uncaught page errors', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '))
 

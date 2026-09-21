@@ -308,3 +308,92 @@ def test_a_second_callback_with_the_same_link_is_refused(tmp_path, client, monke
     second = client.get(f"/oauth/google/callback?code=c&state={state}")
     assert "Connected" in first.text
     assert "Connected" not in second.text
+
+
+# --------------------------------------------------------- typing a credential in the panel
+
+ICLOUD_FIELDS = {"ICLOUD_USERNAME": "steve@example.com", "ICLOUD_APP_PASSWORD": "abcd-efgh-ijkl-mnop"}
+
+
+def test_connecting_from_the_panel_writes_the_file_and_answers_with_the_state(tmp_path, client):
+    response = client.post("/api/calendars/credentials",
+                           json={"provider": "icloud", "fields": ICLOUD_FIELDS})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "icloud"
+    assert body["configured"] is True and body["why"] == ""
+
+    written = (tmp_path / "icloud.env").read_text(encoding="utf-8")
+    assert "ICLOUD_APP_PASSWORD=abcd-efgh-ijkl-mnop" in written
+
+
+def test_the_reply_never_carries_back_what_was_sent(tmp_path, client):
+    """A response body is the easiest place for a secret to end up: it gets logged by
+    whatever is in front, shown in dev tools, and screenshotted."""
+    response = client.post("/api/calendars/credentials",
+                           json={"provider": "icloud", "fields": ICLOUD_FIELDS})
+    assert "abcd-efgh-ijkl-mnop" not in response.text
+
+
+def test_a_bad_key_says_which_key_and_never_the_value(tmp_path, client):
+    response = client.post("/api/calendars/credentials", json={
+        "provider": "icloud",
+        "fields": {"ICLOUD_USERNAME": "steve@example.com", "ICLOUD_APP_PASSWROD": "abcd-efgh"},
+    })
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "ICLOUD_APP_PASSWROD" in detail, "name it: the person typed it"
+    assert "abcd-efgh" not in detail, "and never repeat what was typed into it"
+    assert not (tmp_path / "icloud.env").exists()
+
+
+def test_the_calendar_list_reports_it_connected_afterwards(tmp_path, client):
+    client.post("/api/calendars/credentials", json={"provider": "icloud", "fields": ICLOUD_FIELDS})
+
+    body = client.get("/api/calendars").json()
+    assert body["configured"] is True and body["why"] == ""
+    assert {p["provider"]: p["configured"] for p in body["providers"]}["icloud"] is True
+
+
+def test_connecting_is_not_a_claim_that_it_worked(tmp_path, client):
+    """Saving says the file is right, not that Apple accepted it — the sync is what finds
+    that out, and a panel that said "connected" before then would be guessing."""
+    body = client.post("/api/calendars/credentials",
+                       json={"provider": "icloud", "fields": ICLOUD_FIELDS}).json()
+    assert body["configured"] is True and body["why"] == ""
+
+    # The file is right; nothing has been read. The panel learns whether the password works
+    # from the sync it runs next, which is the only thing that can answer it.
+    listing = client.get("/api/calendars").json()
+    assert listing["last_sync"] is None and listing["calendars"] == []
+
+
+def test_a_google_client_can_be_filled_in_and_still_reads_as_coming_soon(tmp_path, client):
+    """The console step produces these two values before anything else can happen, so this
+    half of it has to work even while the interface keeps Google switched off."""
+    response = client.post("/api/calendars/credentials", json={
+        "provider": "google",
+        "fields": {"GOOGLE_CLIENT_ID": "1234.apps.googleusercontent.com",
+                   "GOOGLE_CLIENT_SECRET": "shh"},
+    })
+    assert response.status_code == 200
+    assert "shh" not in response.text
+
+    # Saved and connected are different facts. This is the half that a console visit
+    # produces, and the half that is missing is the one that needs a person.
+    body = response.json()
+    assert body["configured"] is False
+    assert "not connected yet" in body["why"]
+    assert "GOOGLE_CLIENT_ID=1234.apps.googleusercontent.com" in (tmp_path / "google.env").read_text()
+
+    google = {p["provider"]: p for p in client.get("/api/calendars").json()["providers"]}["google"]
+    assert google["configured"] is False and google["coming_soon"] is True
+    assert client.get("/api/calendars").json()["configured"] is False, "iCloud is still the rail's answer"
+
+
+def test_an_unknown_provider_is_a_400_rather_than_a_silent_nothing(tmp_path, client):
+    response = client.post("/api/calendars/credentials",
+                           json={"provider": "fastmail", "fields": ICLOUD_FIELDS})
+    assert response.status_code == 400
+    assert "fastmail" in response.json()["detail"]

@@ -43,6 +43,13 @@ export const api = {
     }),
   setCalendar: (ref, enabled) =>
     req('/api/calendars', { method: 'PATCH', body: JSON.stringify({ ref, enabled }) }),
+  // The one write that carries a secret. It goes out once, is written 0600 on the server, and
+  // does not come back: the reply is the provider's state, not what was sent.
+  saveCredentials: (provider, fields) =>
+    req('/api/calendars/credentials', {
+      method: 'POST',
+      body: JSON.stringify({ provider, fields }),
+    }),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
