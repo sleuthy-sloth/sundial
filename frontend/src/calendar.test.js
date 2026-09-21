@@ -8,7 +8,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { ago, clock, eventTime, hasLooked, statusLine, syncNote } from './calendar.js'
+import { ago, clock, eventTime, hasLooked, statusLine, syncNote ,
+  providerNote,
+} from './calendar.js'
 
 const totals = (over = {}) => ({ added: 0, updated: 0, removed: 0, errors: 0, ...over })
 const NOW = Date.parse('2026-09-21T12:00:00Z')
@@ -83,4 +85,34 @@ test('a time is read in the reader\'s own zone, not the server\'s', () => {
   const iso = '2026-09-21T21:00:00Z'
   assert.equal(clock(iso), eventTime({ all_day: 0, start_utc: iso }))
   assert.equal(clock(iso), `${String(new Date(iso).getHours()).padStart(2, '0')}:${String(new Date(iso).getMinutes()).padStart(2, '0')}`)
+})
+
+
+// providerNote is node:test style, like the rest of this file: the panel's wording is
+// pinned here rather than eyeballed in the rail.
+test('providerNote says coming soon for a provider that is not set up', () => {
+  assert.equal(
+    providerNote({ provider: 'google', configured: false }),
+    'Google Calendar — coming soon.',
+  )
+})
+
+test('providerNote says who it is once it is connected', () => {
+  assert.equal(
+    providerNote({ provider: 'google', configured: true, account: 'steven@example.com' }),
+    'Google Calendar — connected as steven@example.com',
+  )
+})
+
+test('providerNote reports a failure that belongs to the whole provider', () => {
+  // No calendar row can carry this one: nothing was reached to hang it on.
+  assert.equal(
+    providerNote({ provider: 'google', configured: true, last_error: 'Google answered 503' }),
+    'Google Calendar — Google answered 503',
+  )
+})
+
+test('providerNote has nothing to say about nothing', () => {
+  assert.equal(providerNote(null), '')
+  assert.equal(providerNote({}), '')
 })

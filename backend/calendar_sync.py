@@ -20,6 +20,7 @@ the same name for every dependency in the venv.)
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -139,6 +140,135 @@ def events_from_ics(
                 "status": status,
                 "etag": _text(component, "X-SUNDIAL-ETAG") or None,
                 "sequence": int(sequence) if sequence is not None else 0,
+                "updated_at": now,
+            }
+        )
+    return rows, cancelled
+
+
+# Google sends a "work location" as an event, which is a marker rather than a commitment:
+# it has no summary, and a day planner showing it would be showing a commute.
+GOOGLE_SKIP_TYPES = ("workingLocation",)
+
+
+def _google_moment(value: Optional[dict]):
+    """One of Google's {date} / {dateTime, timeZone} pairs as something `_utc` reads.
+
+    A `date` becomes a `date`, so an all-day event anchors at UTC midnight exactly as an
+    ICS DATE value does — the two providers have to agree here or the same event would sit
+    an hour apart depending on which calendar it came from.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_date = value.get("date")
+    if raw_date:
+        try:
+            year, month, day = (int(part) for part in str(raw_date).split("-")[:3])
+            return date(year, month, day)
+        except (TypeError, ValueError):
+            return None
+    raw = value.get("dateTime")
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None and value.get("timeZone"):
+        try:
+            return parsed.replace(tzinfo=ZoneInfo(str(value["timeZone"])))
+        except Exception:  # noqa: BLE001 — an unknown zone name falls back to the box's
+            return parsed
+    return parsed
+
+
+def _google_rrule(item: dict) -> Optional[str]:
+    for rule in item.get("recurrence") or []:
+        text = str(rule)
+        if text.upper().startswith("RRULE:"):
+            return text[len("RRULE:"):]
+    return None
+
+
+def events_from_google(
+    items: list[dict],
+    calendar_ref: str,
+    provider: str,
+    now: Optional[str] = None,
+) -> tuple[list[dict], list[str]]:
+    """Read `events.list` items into rows, plus the uids it says are cancelled.
+
+    Google is asked with `singleEvents=true`, so a series arrives as one item per
+    occurrence plus the master. That maps onto the storage shape without translation: the
+    item's `recurringEventId` is the series UID and its original start is the RECURRENCE-ID,
+    which is exactly the pair the CalDAV path stores for an instance.
+
+    Cancellations are reported only for whole events. Google marks a *single occurrence* of
+    a series as cancelled when somebody deletes one, and removing the entire series for that
+    would be destructive — so an instance is left to disappear from the window, which the
+    engine reconciles. A cancelled event with no series behind it is a real deletion and is
+    reported as one.
+    """
+    now = now or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows: list[dict] = []
+    cancelled: list[str] = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("eventType") or "") in GOOGLE_SKIP_TYPES:
+            continue
+        google_id = str(item.get("id") or "")
+        if not google_id:
+            continue
+
+        parent = str(item.get("recurringEventId") or "")
+        uid = parent or google_id
+
+        status = str(item.get("status") or "confirmed").upper()
+        if status == "CANCELLED":
+            if not parent and not item.get("recurrence"):
+                cancelled.append(uid)
+            continue
+
+        start = _google_moment(item.get("start"))
+        if start is None:
+            continue
+        end = _google_moment(item.get("end"))
+
+        all_day = _is_all_day(start)
+        if end is None:
+            # RFC 5545's defaults, and what Google leaves out when an event is open-ended.
+            end = start + (timedelta(days=1) if all_day else timedelta(0))
+
+        # The instance's identity inside its series: its original start, which Google keeps
+        # stable when an occurrence is moved, so editing one does not delete and re-add it.
+        original = _google_moment(item.get("originalStartTime"))
+        recurrence = _utc(original or start).isoformat(timespec="seconds") if parent else ""
+
+        rows.append(
+            {
+                "id": event_id(calendar_ref, uid, recurrence),
+                "calendar_ref": calendar_ref,
+                "provider": provider,
+                "uid": uid,
+                "recurrence_id": recurrence,
+                "title": str(item.get("summary") or "").strip() or "(no title)",
+                "location": str(item.get("location") or ""),
+                "notes": str(item.get("description") or ""),
+                "start_utc": _utc(start).isoformat(timespec="seconds"),
+                "end_utc": _utc(end).isoformat(timespec="seconds"),
+                "all_day": 1 if all_day else 0,
+                "rrule": _google_rrule(item),
+                # Not iCalendar: Google sends JSON, and the column keeps whatever the
+                # provider actually said. Nothing reads it back; it is there for the day
+                # something looks wrong and the question is what arrived.
+                "raw_ics": json.dumps(item, sort_keys=True)[:20000],
+                "status": status,
+                "etag": str(item.get("etag") or "").strip('"') or None,
+                # Google has no SEQUENCE. Both sides of a Google-only comparison are 0, so
+                # the conflict rules fall through to the later timestamp, which is right.
+                "sequence": 0,
                 "updated_at": now,
             }
         )

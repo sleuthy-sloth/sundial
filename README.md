@@ -180,12 +180,16 @@ committing.
 ```
 backend/app.py              the API and the block rules (FastAPI)
 backend/store.py            the database handle, so two modules can open one
-backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules (pure)
-backend/caldav.py           the transport: CalDAV in, event rows out. No database
+backend/calendar_sync.py    iCalendar and Google JSON ⇄ the event model, and the rules (pure)
+backend/calendar_errors.py  the error vocabulary both transports speak, and what each means
+backend/palette.py          the eight colours, and how a foreign colour lands on one of them
+backend/caldav.py           the iCloud transport: CalDAV in, event rows out. No database
+backend/google_calendar.py  the Google transport: REST in, event rows out. Built, not enabled
+backend/google_oauth.py     Google's consent flow: PKCE, a single-use state, a 0600 token file
 backend/calendar_service.py the sync: credentials, transport, rules, database, sync_log
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
-backend/test_*.py           139 tests
+backend/test_*.py           233 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -193,12 +197,12 @@ scripts/make_icons.py       the app icon and favicon: measured geometry, two lay
 frontend/src/App.jsx        state and layout only
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
-                            LedgerArt
+                            LedgerArt, CalendarPanel
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   160 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   161 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
-frontend/src/calendar.js    what the calendar panel says, in words (pure)
+frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
 frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
 frontend/src/calendar.test.js  unit tests for the panel's wording (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
@@ -246,10 +250,19 @@ the calendar view asks the server to sync if the last one is over fifteen minute
 server decides, so switching views never hammers iCloud. `scripts/check_calendar.py --sync` is
 happy under a systemd timer if you would rather it happened while nobody is looking.
 
-Google is not here yet, and cannot be done this way: password-based CalDAV was switched off in
-2024, so it needs an OAuth client and a consent flow. The transport boundary is what keeps
-that from being a rewrite. `docs/calendar-sync.md` has the reasoning, the protocol as it is
-actually spoken, and the two rules that stop a bad sync deleting anything.
+### Google is built, and not switched on
+
+There is a whole second transport in here — Google's REST API, an OAuth flow with PKCE, a
+refresh token in `google.env` written 0600 — and the interface says one line: **Google
+Calendar — coming soon.** That is not modesty, it is the state of it. Google's CalDAV endpoint
+would have been less code, but it only accepts the full `calendar` scope, which is write access
+to every calendar in the account; the REST API accepts `calendar.readonly`, so the grant itself
+cannot write and "nothing goes back out" survives the credential. What is missing is a step no
+code can do: somebody walking Google's console to create an OAuth client *and publish it*,
+because a consent screen left in Testing has its refresh tokens revoked after exactly seven
+days. Until then it refuses honestly rather than offering a button that could only fail.
+`docs/calendar-sync.md` has the console steps, the two rules that stop a bad sync deleting
+anything, and what is left to do.
 
 ## Backup and restore
 
@@ -337,13 +350,16 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.3.0. Calendar sync arrived — read-only, iCloud first — on top of the 0.2.x daylight
-ledger, which was about trust rather than features: it keeps what you type, the day view
-describes the day accurately, and an upgrade reaches the phone on its own. The honest gaps:
+v0.4.0. Two transports, one of them switched on: iCloud syncs and is what ships, and Google
+is built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which
+was about trust rather than features: it keeps what you type, the day view describes the day
+accurately, and an upgrade reaches the phone on its own. The honest gaps:
 
-- **Only iCloud, and only inwards.** Google needs OAuth, as above. Pushing a block out is
-  written and tested (`block_to_ics`) and deliberately not wired up: nothing here writes to
-  your calendar yet.
+- **Google is not switched on**, as above. The transport, the consent flow, the token file and
+  the error handling are written and tested; the missing piece is a person in Google's console,
+  and the app says exactly that rather than failing at the last moment.
+- **Nothing goes outwards.** Pushing a block out is written and tested (`block_to_ics`) and
+  deliberately not wired up: nothing here writes to your calendar, on either provider.
 - **Events are not on the timeline.** They show in the rail, beside the plan. Putting them
   into the day is the next slice, and it is design work before it is plumbing — they need a
   visual language that says "this is not yours to move" without shouting.

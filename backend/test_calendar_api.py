@@ -7,6 +7,7 @@ import os
 import pathlib
 import tempfile
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 os.environ.setdefault("SUNDIAL_DB", str(pathlib.Path(tempfile.mkdtemp()) / "api-tests.db"))
 
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app as sundial  # noqa: E402
 import calendar_service  # noqa: E402
+import google_oauth  # noqa: E402
 import store  # noqa: E402
 
 HOME_REF = "/123456789/calendars/home/"
@@ -24,6 +26,9 @@ HOME_REF = "/123456789/calendars/home/"
 def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "api.db")
     monkeypatch.setenv("SUNDIAL_ICLOUD_ENV", str(tmp_path / "icloud.env"))
+    # Both providers, always: a test that leaves one at the developer's real path is a test
+    # that reads their credentials.
+    monkeypatch.setenv("SUNDIAL_GOOGLE_ENV", str(tmp_path / "google.env"))
     sundial.bootstrap()
     yield
 
@@ -162,3 +167,144 @@ def test_the_credentials_path_is_a_setting_not_a_parameter(client, monkeypatch, 
     body = schema["components"]["schemas"]["SyncIn"]["properties"]
     assert set(body) == {"if_stale_seconds"}
     assert not any("password" in str(p).lower() for p in parameters)
+
+
+# --------------------------------------------------------------- which providers exist
+
+
+def test_the_calendar_list_says_which_providers_are_configured(client):
+    providers = {p["provider"]: p for p in client.get("/api/calendars").json()["providers"]}
+    assert set(providers) == {"icloud", "google"}
+    assert providers["icloud"]["configured"] is False
+    assert "icloud.env" in providers["icloud"]["why"]
+    assert providers["google"]["configured"] is False
+    assert providers["google"]["coming_soon"] is True
+
+
+def test_icloud_is_the_answer_the_rail_reads(tmp_path, client):
+    """`configured` stays the iCloud answer: it is what the Sync control reads, and iCloud is
+    the provider that ships."""
+    (tmp_path / "icloud.env").write_text("ICLOUD_USERNAME=a@b.c\nICLOUD_APP_PASSWORD=xxxx\n",
+                                         encoding="utf-8")
+    body = client.get("/api/calendars").json()
+    assert body["configured"] is True and body["why"] == ""
+    assert {p["provider"]: p["configured"] for p in body["providers"]}["icloud"] is True
+
+
+def test_a_whole_provider_failing_has_somewhere_to_be_seen(client):
+    """A listing failure has no calendar row to hang on, so without this the rail could only
+    say that nothing arrived, not why."""
+    with store.db() as conn:
+        conn.execute(
+            """INSERT INTO sync_log (at, provider, calendar_ref, uid, action, detail)
+               VALUES ('2026-09-21T10:00:00+00:00', 'google', NULL, NULL, 'error',
+                       'Google answered 503: Backend Error')"""
+        )
+    google = {p["provider"]: p for p in client.get("/api/calendars").json()["providers"]}["google"]
+    assert google["last_error"] == "Google answered 503: Backend Error"
+
+
+# --------------------------------------------------------------- the consent flow
+
+GOOGLE_ENV = "GOOGLE_CLIENT_ID=1234.apps.googleusercontent.com\nGOOGLE_CLIENT_SECRET=shh\n"
+
+
+def configure_google(tmp_path, extra: str = ""):
+    path = tmp_path / "google.env"
+    path.write_text(GOOGLE_ENV + extra, encoding="utf-8")
+    return path
+
+
+def test_the_consent_flow_is_refused_honestly_before_it_is_set_up(client):
+    response = client.get("/oauth/google/start", follow_redirects=False)
+    assert response.status_code == 400
+    assert "google.env" in response.json()["detail"]
+
+
+def test_the_consent_screen_asks_for_read_only_and_nothing_else(tmp_path, client):
+    configure_google(tmp_path)
+    response = client.get("/oauth/google/start", follow_redirects=False)
+    assert response.status_code == 302
+
+    location = response.headers["location"]
+    assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    query = {k: v[0] for k, v in parse_qs(urlparse(location).query).items()}
+    scopes = query["scope"].split()
+    assert scopes[0] == "https://www.googleapis.com/auth/calendar.readonly"
+    assert "https://www.googleapis.com/auth/calendar" not in scopes
+    assert query["code_challenge_method"] == "S256" and query["code_challenge"]
+    assert query["access_type"] == "offline" and query["state"]
+    assert query["redirect_uri"].endswith("/oauth/google/callback")
+
+
+def test_the_callback_answers_as_a_page_and_not_as_the_app(client):
+    """These two routes are reached by a browser, and the SPA is mounted on / — so this also
+    checks the mount above has not swallowed them."""
+    # No code is answered before the state is even looked at, which is also what keeps this
+    # from confirming whether a guessed state was real.
+    bare = client.get("/oauth/google/callback?state=never-started")
+    assert bare.status_code == 200
+    assert bare.headers["content-type"].startswith("text/html")
+    assert "authorization code" in bare.text
+    assert '<div id="root"' not in bare.text, "that is the app, not the answer"
+
+    guessed = client.get("/oauth/google/callback?code=x&state=never-started")
+    assert guessed.status_code == 200
+    assert "expired" in guessed.text.lower()
+    assert '<div id="root"' not in guessed.text
+
+
+def test_a_state_we_never_issued_is_not_accepted(tmp_path, client):
+    configure_google(tmp_path)
+    response = client.get("/oauth/google/callback?code=stolen&state=guessed")
+    assert response.status_code == 200
+    assert "expired" in response.text.lower() or "not one we started" in response.text
+
+
+def test_google_refusing_is_reported_as_google_refusing(tmp_path, client):
+    configure_google(tmp_path)
+    response = client.get("/oauth/google/callback?error=access_denied")
+    assert "access_denied" in response.text
+
+
+def test_connecting_writes_the_refresh_token_and_says_so(tmp_path, client, monkeypatch):
+    """The whole handshake, minus Google: start, come back with a code, end up connected."""
+    path = configure_google(tmp_path)
+    started = client.get("/oauth/google/start", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+
+    seen = {}
+
+    def fake_exchange(configuration, *, code, verifier, redirect_uri, **kw):
+        seen.update(code=code, verifier=verifier, redirect_uri=redirect_uri)
+        return google_oauth.Tokens(access_token="at", expires_at=0.0,
+                                   refresh_token="1//refresh", account="steven@example.com")
+
+    monkeypatch.setattr(sundial.google_oauth, "exchange", fake_exchange)
+    response = client.get(f"/oauth/google/callback?code=the-code&state={state}")
+
+    assert response.status_code == 200 and "Connected" in response.text
+    assert "steven@example.com" in response.text
+
+    saved = google_oauth.load_configuration(path)
+    assert saved.connected and saved.refresh_token == "1//refresh"
+    assert saved.account == "steven@example.com"
+    assert seen["code"] == "the-code" and seen["verifier"], "the PKCE verifier travelled"
+
+    # Nothing that could be used arrives back in a page somebody might screenshot.
+    assert "the-code" not in response.text
+    assert "1//refresh" not in response.text
+    assert "shh" not in response.text
+
+
+def test_a_second_callback_with_the_same_link_is_refused(tmp_path, client, monkeypatch):
+    """Single use, or a link in a browser history is a link somebody else can replay."""
+    configure_google(tmp_path)
+    started = client.get("/oauth/google/start", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+    monkeypatch.setattr(sundial.google_oauth, "exchange", lambda *a, **kw: google_oauth.Tokens(
+        access_token="at", expires_at=0.0, refresh_token="1//one", account=""))
+    first = client.get(f"/oauth/google/callback?code=c&state={state}")
+    second = client.get(f"/oauth/google/callback?code=c&state={state}")
+    assert "Connected" in first.text
+    assert "Connected" not in second.text

@@ -1,5 +1,27 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.4.0 — 2026-09-21
+
+Google, built and not switched on — plus the second provider the engine needed to have.
+
+- **A second provider, without touching the first.** The sync engine now asks each provider for
+  a session and a list of calendars, and runs the same conflict rules over both. iCloud's rules
+  are unchanged, and a test pins the two providers' mappings to each other so they cannot drift.
+- **Google over the REST API, not CalDAV.** Google's CalDAV endpoint only accepts the full
+  `calendar` scope, which is write access to every calendar in the account. REST accepts
+  `calendar.readonly`, so the grant itself is read-only and "nothing goes back out" survives.
+- **An OAuth flow that is finished, not sketched**: PKCE, a single-use state, a token file
+  written 0600, and a `describe()` that redacts the client secret, the refresh token, the code
+  and the PKCE verifier from anything Google's error body might quote back.
+- **A provider is a thing that can fail on its own.** One provider refusing to list its
+  calendars no longer takes the other's sync down with it, and a failure that belongs to a
+  whole provider — no calendar row to hang it on — is reported where the rail can see it.
+- **`palette.py` and `calendar_errors.py`**: the eight colours and the error vocabulary both
+  transports share, rather than duplicated "just for now".
+- **The interface says "coming soon", in words.** No dead button: while Google has no
+  credentials there is a sentence, not a control that could only fail.
+- **iCloud is untouched.** Same credentials file, same 7-back/60-forward window, same rules.
+
 ## 0.3.0 — 2026-09-21
 
 Calendar sync: the half that was missing. The schema, the iCalendar conversion and the

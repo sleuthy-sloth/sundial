@@ -71,26 +71,40 @@ def main() -> int:
             print(f"  {entry['at']}  {entry['action']:9s} {entry['uid'] or '':<22s} {entry['detail']}")
         return 0
 
-    credentials, why = service.configuration()
-    if credentials is None:
-        print(f"  not configured: {why}")
-        print("  create icloud.env next to the app with ICLOUD_USERNAME and ICLOUD_APP_PASSWORD")
+    sources = {source.provider: source for source in service.sources()}
+    if not any(source.configured for source in sources.values()):
+        print("  nothing is configured yet")
+        for name, source in sources.items():
+            print(f"    {name}: {source.why}")
+        print("  iCloud: create icloud.env with ICLOUD_USERNAME and ICLOUD_APP_PASSWORD")
+        print("  Google: needs an OAuth client, and is not switched on in the interface yet")
         return 1
 
+    icloud = sources["icloud"]
+
     if not args.sync:
+        # Looking without storing is the one thing still iCloud-only: the sync below goes
+        # through the engine, and the engine speaks to both providers.
+        if not icloud.configured:
+            print(f"  iCloud is not configured: {icloud.why}")
+            print("  run with --sync to sync whichever provider is")
+            return 1
         try:
-            with service.CalDavClient(credentials) as session:
-                return describe(credentials, session)
-        except caldav.CalDavError as exc:
+            with service.CalDavClient(icloud.credentials) as session:
+                return describe(icloud.credentials, session)
+        except service.CalendarError as exc:
             print(f"  could not read the calendar: {exc}")
             return 2
 
     print("  syncing")
     try:
         result = service.sync()
-    except caldav.CalDavError as exc:
+    except service.CalendarError as exc:
         print(f"  the sync could not run: {exc}")
         return 2
+
+    for failure in result.get("provider_errors", []):
+        print(f"    {failure['provider']}: {failure['error']}")
 
     for calendar in result["calendars"]:
         if calendar["error"]:

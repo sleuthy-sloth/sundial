@@ -764,6 +764,7 @@ button { cursor: pointer; }
 .cal-sync:hover { background: var(--accent-soft); }
 .cal-sync:disabled { color: var(--muted); background: none; cursor: default; }
 .cal-when { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.cal-other,
 .cal-why,
 .cal-empty { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 .cal-why code {

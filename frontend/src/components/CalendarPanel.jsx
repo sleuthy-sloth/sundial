@@ -1,4 +1,4 @@
-import { eventTime, hasLooked, statusLine } from '../calendar.js'
+import { eventTime, hasLooked, providerNote, statusLine } from '../calendar.js'
 
 /** The calendar, in the rail: what is connected, how fresh it is, and what is on this day.
  *
@@ -13,6 +13,9 @@ export default function CalendarPanel({ status, events, busy, note, onSync, onTo
   // Which colour belongs to which calendar, so an event can be marked with the same swatch
   // its calendar carries above. Without this the two lists read as unrelated.
   const colourOf = Object.fromEntries(calendars.map((c) => [c.ref, c.colour]))
+  // Providers other than the one that ships, so the panel can be honest about them without
+  // pretending they are usable yet. iCloud is the app's own state above, not a line here.
+  const others = (status?.providers ?? []).filter((p) => p.provider !== 'icloud')
 
   return (
     <section className="cal" aria-labelledby="cal-heading">
@@ -32,6 +35,10 @@ export default function CalendarPanel({ status, events, busy, note, onSync, onTo
           Add <code>icloud.env</code> with your Apple ID and an app-specific password.
         </p>
       )}
+
+      {others.map((p) => (
+        <p className="cal-other" key={p.provider}>{providerNote(p)}</p>
+      ))}
 
       {failed.map((c) => (
         <p className="cal-problem" key={c.ref}>{c.name}: {c.last_error}</p>
