@@ -365,8 +365,15 @@ const boxOf = async (text) => {
 // ---- a day with nothing on it draws nothing ----
 {
   await page.fill('.day-head input[type="date"]', EMPTY_DAY)
-  const settled = await until(async () => (await page.locator('.timeline-empty').count()) === 1)
-  check('an empty day draws no blocks', Boolean(settled) && (await page.locator('.content .block').count()) === 0)
+  // Wait for the assertion itself, not a proxy for it. This used to wait for the empty state to
+  // appear and then read the block count one round later — two different instants, and on a slow
+  // runner the day is still settling between them. It failed in CI on a commit whose other run
+  // passed, which is what a check measuring the wrong moment looks like from the outside.
+  const empty = await until(async () =>
+    (await page.locator('.timeline-empty').count()) === 1 &&
+    (await page.locator('.content .block').count()) === 0)
+  check('an empty day draws no blocks', Boolean(empty),
+    `empty state ${await page.locator('.timeline-empty').count()}, blocks ${await page.locator('.content .block').count()}`)
   await page.fill('.day-head input[type="date"]', today)
   await page.waitForTimeout(400)
 }
