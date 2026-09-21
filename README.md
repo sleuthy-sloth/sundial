@@ -83,9 +83,10 @@ backend/test_*.py           77 tests
 frontend/src/App.jsx        state and layout only
 frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
                             Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   76 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   91 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
+frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
 ```
@@ -132,8 +133,8 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 77 tests
-cd frontend && npm test                                # 8 unit tests, node --test
-cd frontend && npm run check:ui                        # 76 browser checks
+cd frontend && npm test                                # 18 unit tests, node --test
+cd frontend && npm run check:ui                        # 91 browser checks
 ```
 
 The browser checks drive headless Chromium with real mouse input — actual drags, not

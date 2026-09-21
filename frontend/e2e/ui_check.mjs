@@ -537,6 +537,182 @@ const boxOf = async (text) => {
   consoleErrors.splice(errorsBefore, consoleErrors.length - errorsBefore)
 }
 
+// ---- keyboard, a cancelled gesture, and the end of the day ----
+{
+  // 1. a block opens from the keyboard, and the editor can be left the same way
+  {
+    const block = page.locator('.content .block').filter({ hasText: 'ui-check icon' }).first()
+    await block.scrollIntoViewIfNeeded()
+    await block.press('Enter')
+    await page.waitForSelector('.editor .title-input')
+    check('Enter on a focused block opens the editor', (await page.locator('.editor').count()) === 1)
+    check(
+      'and focus moves into the panel, not into a text field',
+      await page.evaluate(() => document.activeElement?.classList.contains('editor')),
+    )
+
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+    check('Escape leaves the editor', (await page.locator('.editor').count()) === 0)
+  }
+
+  // 2. a date given in the editor schedules on that date, not on today
+  {
+    const future = '2099-01-02'
+    const item = await spawn({ title: 'ui-check future', duration_min: 30 })
+    await page.reload({ waitUntil: 'networkidle' })
+
+    await page.locator('.inbox .chip').filter({ hasText: 'ui-check future' }).first().click()
+    await page.waitForSelector('.editor .title-input')
+    await page.locator('.editor input[type="date"]').fill(future)
+    await page.waitForTimeout(700)
+
+    const landed = (await blocksOn(future)).find((b) => b.id === item.id)
+    check('a date in the editor schedules on that date', landed?.day === future, `day=${landed?.day}`)
+    check('and it is no longer on today', !(await blocksOn(today)).some((b) => b.id === item.id))
+    await page.reload({ waitUntil: 'networkidle' })
+  }
+
+  // 3. a gesture the browser takes back is not a drop
+  {
+    const subject = await spawn({
+      title: 'ui-check cancel',
+      day: today,
+      start_min: 22 * 60,
+      duration_min: 30,
+    })
+    await page.reload({ waitUntil: 'networkidle' })
+
+    const box = await boxOf('ui-check cancel')
+    const x = box.x + box.width / 2
+    const y = box.y + 18
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y + 4)
+    await page.mouse.move(x, y + 2 * HOUR_PX) // a real drag, with the block following
+    await page.evaluate(() => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }))
+    })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+
+    const after = (await blocksOn(today)).find((b) => b.id === subject.id)
+    check(
+      'a cancelled gesture leaves the block where it was',
+      after?.start_min === 22 * 60,
+      `start_min=${after?.start_min}`,
+    )
+  }
+
+  // 4. an item dropped past the end of the day takes the latest position that fits
+  {
+    const late = await spawn({ title: 'ui-check late', duration_min: 90 })
+    await page.reload({ waitUntil: 'networkidle' })
+
+    // The window is still wherever the checks before this one left it, and the rail
+    // scrolls with the page: put the top of the day back in view so the chip is
+    // actually under the pointer.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const chip = await page
+      .locator('.inbox .chip')
+      .filter({ hasText: 'ui-check late' })
+      .first()
+      .boundingBox()
+    await page.mouse.move(chip.x + 30, chip.y + 12)
+    await page.mouse.down()
+    await page.mouse.move(chip.x + 70, chip.y + 30) // start the drag, clear the threshold
+
+    // Now scroll the far end of the day into view while still holding the item, which
+    // is the only way to reach it: the timeline is taller than the window here.
+    const spot = await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight)
+      const wanted = ((23 * 60 + 45) / 60) * 56
+      const rect = document.querySelector('.content').getBoundingClientRect()
+      return { y: rect.top + wanted, x: rect.left + rect.width / 2 }
+    })
+    check(
+      'the end of the day can be reached',
+      spot.y > 40 && spot.y < 900 - 10,
+      `y=${Math.round(spot.y)}`,
+    )
+
+    await page.mouse.move(spot.x, spot.y)
+    await page.waitForTimeout(150)
+
+    const preview = await page.evaluate(() => {
+      const ghost = document.querySelector('.block.ghost')
+      if (!ghost) return null
+      return { top: parseFloat(ghost.style.top), height: parseFloat(ghost.style.height) }
+    })
+    check('the drop draws a preview', preview !== null)
+    check(
+      'and the preview fits inside the day',
+      preview ? ((preview.top + preview.height) / 56) * 60 <= 1440.5 : false,
+      preview ? `${Math.round(((preview.top + preview.height) / 56) * 60)} minutes in` : 'no preview',
+    )
+
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+    const stored = (await blocksOn(today)).find((b) => b.id === late.id)
+    check('the late drop is kept', Boolean(stored), `day=${stored?.day}`)
+    check(
+      'at the position the preview showed',
+      Boolean(stored && preview) && Math.abs((preview.top / 56) * 60 - stored.start_min) < 1,
+      `preview ${preview ? Math.round((preview.top / 56) * 60) : '?'} vs stored ${stored?.start_min}`,
+    )
+    check(
+      'and it does not run past midnight',
+      Boolean(stored) && stored.start_min + stored.duration_min <= 1440,
+      stored ? `${stored.start_min} + ${stored.duration_min}` : 'not kept',
+    )
+    await page.evaluate(() => window.scrollTo(0, 0))
+  }
+
+  // 5. a tap, on a device that taps
+  {
+    const touchy = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } })
+    const touchPage = await touchy.newPage()
+    try {
+      await touchPage.goto(BASE, { waitUntil: 'networkidle' })
+      await touchPage.locator('.tabbar .tab').nth(1).click()
+      await touchPage.waitForSelector('.content .block')
+      const target = touchPage.locator('.content .block').first()
+      await target.scrollIntoViewIfNeeded()
+      const box = await target.boundingBox()
+      await touchPage.touchscreen.tap(box.x + box.width / 2, box.y + 18)
+      await touchPage.waitForTimeout(400)
+      check('a touch tap opens the editor', (await touchPage.locator('.editor').count()) === 1)
+    } finally {
+      await touchy.close()
+    }
+  }
+
+  // 6. bigger text is bigger, and the layout holds
+  {
+    const size = () =>
+      page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.day-title')).fontSize))
+    const before = await size()
+
+    // Exactly what a reader asking for bigger text does: raise the browser's base size.
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '32px'
+    })
+    await page.waitForTimeout(250)
+    const after = await size()
+
+    check('bigger text actually makes the type bigger', after > before * 1.5, `${before} -> ${after}`)
+    const spill = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    check('and the page does not run off the side', spill <= 2, `${spill}px too wide`)
+
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = ''
+    })
+    await page.waitForTimeout(150)
+  }
+}
+
 // ---- the phone shape ----
 {
   await page.setViewportSize({ width: 390, height: 844 })

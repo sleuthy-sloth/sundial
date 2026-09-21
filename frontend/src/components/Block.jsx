@@ -19,6 +19,13 @@ export default function Block({ block, view, isNow, selected, onPointerDown, onS
       style={{ top: (shown.start_min / 60) * HOUR_PX, height }}
       onPointerDown={(e) => onPointerDown(e, 'move', block)}
       onClick={() => onSelect(block.id)}
+      onKeyDown={(e) => {
+        // A div with role="button" and a tab stop is not a button: nothing happens on
+        // Enter or Space until something happens on Enter or Space.
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault() // Space would otherwise scroll the timeline
+        onSelect(block.id)
+      }}
       role="button"
       tabIndex={0}
       aria-label={`${block.title}, ${hhmm(shown.start_min)} to ${hhmm(shown.start_min + shown.duration_min)}`}
