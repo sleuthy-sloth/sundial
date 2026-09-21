@@ -14,6 +14,7 @@ import Inbox from './components/Inbox'
 import Timeline from './components/Timeline'
 import Editor from './components/Editor'
 import Agenda from './components/Agenda'
+import Glance from './components/Glance'
 import CalendarPanel from './components/CalendarPanel'
 import TabBar from './components/TabBar'
 import Profile from './components/Profile'
@@ -499,6 +500,9 @@ export default function App() {
 
         {tab === 'today' && (
           <div className="view">
+            {/* The glance sits above the plan rather than inside it: what is happening now is a
+                fact about the day, and the agenda below is the list of what is left. */}
+            <Glance blocks={blocks} day={day} today={today} nowMin={nowMin} />
             <Agenda
               blocks={blocks}
               inbox={inbox}
