@@ -231,7 +231,16 @@ const boxOf = async (text) => {
     return b?.day === today && b?.start_min != null ? b : undefined
   })
   check('inbox drag schedules the block', after?.day === today && after?.start_min != null, `day=${after?.day}`)
-  check('it lands under the pointer', after?.start_min === expected, `expected ${expected}, got ${after?.start_min}`)
+  // Within a snap step rather than exactly on it: the app snaps to 15 minutes, so a pointer a
+  // pixel either side of a boundary is a different number, and this check failed in CI twice for
+  // that reason while passing everywhere else. One step still says the block landed where it was
+  // dropped, rather than at the top of the day or in the wrong hour.
+  const offBy = after?.start_min == null ? null : Math.abs(after.start_min - expected)
+  check(
+    'it lands under the pointer',
+    offBy != null && offBy <= SNAP_MIN,
+    `expected ${expected}, got ${after?.start_min}`,
+  )
   check('and it left the inbox', Boolean(await until(async () => (await inboxNow()).every((b) => b.id !== loose.id))))
 }
 
@@ -925,6 +934,12 @@ const boxOf = async (text) => {
   // hidden the two stack and the wrapper is twice as tall — which is exactly what happened.
   const oneImageWide = (box) =>
     Boolean(box) && box.width > 0 && Math.abs(box.height / box.width - 537 / 800) < 0.03
+  // naturalWidth is 0 until the file has decoded, and a slow runner makes that a race rather than
+  // a check. Wait for the real size, the way everything else here waits.
+  const artSized = (sel) => until(async () => {
+    const box = await artOf(sel)
+    return box && box.natural === RESERVED ? box : null
+  })
 
   // 1. the empty inbox (the suite is sitting on one: nothing left, no blocks at all)
   {
@@ -932,10 +947,11 @@ const boxOf = async (text) => {
     await page.locator('.view-switch button').nth(1).click() // the rail is the timeline's
     await until(async () => (await page.locator('.inbox').count()) === 1)
     check('the inbox really is empty before we look at it', (await inboxNow()).length === 0)
-    const box = await artOf('.inbox-empty .art')
+    const box = await artOf('.inbox-empty .art') // read again below once it has decoded
     check('the empty inbox shows the tray', Boolean(box) && box.width > 0, box ? `${Math.round(box.width)}px wide` : 'no .inbox-empty')
     check('and it is the light file', Boolean(box) && stem(box.src) === 'empty-inbox-light', stem(box?.src))
-    check('at the size we reserved for it', Boolean(box) && box.natural === RESERVED, String(box?.natural))
+    const sized = await artSized('.inbox-empty .art')
+    check('at the size we reserved for it', Boolean(sized), String(sized?.natural || 'never decoded'))
     check('and only one of the two files is drawn', oneImageWide(box), box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'absent')
     check(
       'the sentence is still there to explain it',
@@ -970,10 +986,11 @@ const boxOf = async (text) => {
     await page.fill('.day-head input[type="date"]', EMPTY_DAY)
     await until(async () => (await page.locator('.state-timeline .art').count()) === 1)
 
-    const light = await artOf('.state-timeline .art')
+    const light = await artOf('.state-timeline .art') // read again below once it has decoded
     check('an empty timeline puts the dial on the rail', Boolean(light) && light.width > 0, light ? `${Math.round(light.width)}px wide` : 'absent')
     check('and it is the light file', Boolean(light) && stem(light.src) === 'empty-timeline-light', stem(light?.src))
-    check('at the size we reserved for it', Boolean(light) && light.natural === RESERVED, String(light?.natural))
+    const lightSized = await artSized('.state-timeline .art')
+    check('at the size we reserved for it', Boolean(lightSized), String(lightSized?.natural || 'never decoded'))
     check('and only one of the two files is drawn', oneImageWide(light), light ? `${Math.round(light.width)}x${Math.round(light.height)}` : 'absent')
     check(
       'with the instruction still doing the explaining',
@@ -1013,9 +1030,10 @@ const boxOf = async (text) => {
     const shown = await until(async () => (await page.locator('.state-complete .art').count()) === 1)
     check('a finished day says so', Boolean(shown))
 
-    const all = await artOf('.state-complete .art')
+    const all = await artOf('.state-complete .art') // read again below once it has decoded
     check('with the low sun, light file', Boolean(all) && stem(all.src) === 'day-complete-light', stem(all?.src))
-    check('at the size we reserved for it', Boolean(all) && all.natural === RESERVED, String(all?.natural))
+    const allSized = await artSized('.state-complete .art')
+    check('at the size we reserved for it', Boolean(allSized), String(allSized?.natural || 'never decoded'))
     check('and only one of the two files is drawn', oneImageWide(all), all ? `${Math.round(all.width)}x${Math.round(all.height)}` : 'absent')
     check('once, not once per section', (await page.locator('.state-complete').count()) === 1)
     check(
