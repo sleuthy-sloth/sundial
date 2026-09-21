@@ -1,8 +1,9 @@
-fastapi
-uvicorn
-pytest
-httpx
-# calendar sync (all pure-python wheels — nothing to compile on the Pi)
-icalendar
-caldav
-recurring-ical-events
+# Runtime. Pinned exactly, so the Pi comes up on the versions this was tested against
+# rather than on whatever is newest that morning.
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
+
+# Calendar sync. Pure-python wheels — nothing to compile on a Raspberry Pi.
+icalendar==7.3.0
+recurring-ical-events==3.8.2

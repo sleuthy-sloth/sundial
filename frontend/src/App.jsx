@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import {
-  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay,
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, busyMinutes,
 } from './time'
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
@@ -152,8 +152,15 @@ export default function App() {
         ev.clientX >= rect.left && ev.clientX <= rect.right
 
       if (drag.mode === 'schedule') {
-        // Only draws a landing pad while the pointer is actually over the timeline.
-        setGhostValue(inside ? { start_min: snap(yMin), duration_min: drag.duration } : null)
+        if (!inside) {
+          // Only draws a landing pad while the pointer is actually over the timeline.
+          setGhostValue(null)
+          return
+        }
+        // An item dropped near midnight takes the latest position it fits in, instead
+        // of showing a landing pad that the API is going to refuse.
+        const last = Math.max(0, DAY_MIN - drag.duration)
+        setGhostValue({ start_min: Math.min(snap(yMin), last), duration_min: drag.duration })
       } else if (drag.mode === 'resize') {
         const stop = Math.min(Math.max(snap(yMin), drag.start_min + SNAP_MIN), DAY_MIN)
         setGhostValue({ start_min: drag.start_min, duration_min: stop - drag.start_min })
@@ -164,7 +171,7 @@ export default function App() {
       }
     }
 
-    const finish = async () => {
+    const commit = async () => {
       const g = ghostRef.current
       const d = drag
       const moved = movedRef.current
@@ -182,15 +189,24 @@ export default function App() {
       }
     }
 
+    // A cancelled gesture is not a drag that finished: the browser took the pointer
+    // away (a system gesture, a phone call), so nothing was decided and nothing is
+    // written. Treating it as a drop is how a block moved without being asked to.
+    const abandon = () => {
+      setDrag(null)
+      setGhostValue(null)
+      movedRef.current = false
+    }
+
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', finish)
-    window.addEventListener('pointercancel', finish)
+    window.addEventListener('pointerup', commit)
+    window.addEventListener('pointercancel', abandon)
     return () => {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', finish)
-      window.removeEventListener('pointercancel', finish)
+      window.removeEventListener('pointerup', commit)
+      window.removeEventListener('pointercancel', abandon)
     }
-  }, [drag, day, load])
+  }, [drag, day, write])
 
   // ---- actions ----
 
@@ -272,7 +288,9 @@ export default function App() {
     }
   }
 
-  const planned = blocks.reduce((n, b) => n + b.duration_min, 0)
+  // Time spoken for, not the sum of the durations: a block nested inside another is
+  // not two hours of your day, and "open" has to mean open.
+  const planned = busyMinutes(blocks)
   const layout = ['layout']
   if (view === 'calendar') layout.push('with-rail')
   if (selected) layout.push('with-editor')
@@ -345,7 +363,7 @@ export default function App() {
         <Editor
           key={selected.id}
           block={selected}
-          today={today}
+          day={day}
           onSave={write}
           onRemove={remove}
           onClose={() => setSelectedId(null)}

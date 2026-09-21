@@ -14,9 +14,16 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: backend
+
+      # The release path: a fresh database, an upgrade with plans already in it, and a
+      # restore from a copy. Cheap enough to run on every push, and the only place the
+      # migrations are exercised as the service actually runs them.
+      - run: python scripts/smoke_release.py
+        env:
+          PYTHONPATH: ""
 
       # A unit that does not parse fails on the host at the worst moment and is invisible
       # from here. `verify` also insists the ExecStart binary exists, which it does not in

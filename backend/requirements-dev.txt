@@ -1,0 +1,4 @@
+# Tests and checks. This is the one to install while working: it includes the runtime.
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1  # what FastAPI's TestClient drives the app with

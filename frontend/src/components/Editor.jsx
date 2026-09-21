@@ -17,7 +17,7 @@ const HOLD = 450
  * overwrites a draft that has not gone out yet — and a send that fails keeps the draft
  * on screen, says so, and can be tried again.
  */
-export default function Editor({ block, today, onSave, onRemove, onClose }) {
+export default function Editor({ block, day, onSave, onRemove, onClose }) {
   const [draft, setDraft] = useState({
     title: block.title,
     notes: block.notes,
@@ -32,6 +32,7 @@ export default function Editor({ block, today, onSave, onRemove, onClose }) {
 
   const waiting = useRef(null) // typed, not sent yet
   const timer = useRef(null)
+  const panel = useRef(null)
 
   const deliver = useCallback(async (changes) => {
     setStatus('saving')
@@ -107,8 +108,31 @@ export default function Editor({ block, today, onSave, onRemove, onClose }) {
   // Leaving this block, or the editor: send whatever is still waiting.
   useEffect(() => () => flush(), [flush])
 
+  // Focus goes to the panel rather than the title field. This is a phone-first app, and
+  // opening the keyboard the moment a block is tapped is not a kindness; Escape and Tab
+  // still work from here.
+  useEffect(() => {
+    panel.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      flush()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [flush, onClose])
+
   return (
-    <aside className="editor" role="dialog" aria-label="Block details">
+    <aside
+      className="editor"
+      role="dialog"
+      aria-label="Block details"
+      tabIndex={-1}
+      ref={panel}
+    >
       <div className="sheet-grip" />
 
       <div className="editor-head">
@@ -159,6 +183,24 @@ export default function Editor({ block, today, onSave, onRemove, onClose }) {
       </label>
 
       <label className="field">
+        <span>Day</span>
+        <div className="dur-row">
+          <input
+            type="date"
+            value={block.day ?? day}
+            onChange={(e) => {
+              const next = e.target.value
+              if (!next) return
+              // The day and the start time travel together, so an inbox item given a
+              // date lands at 9am on it rather than being refused by the API.
+              act({ day: next, start_min: block.start_min ?? 9 * 60 })
+            }}
+            aria-label="Day"
+          />
+        </div>
+      </label>
+
+      <label className="field">
         <span>Starts</span>
         <div className="dur-row">
           <input
@@ -167,7 +209,9 @@ export default function Editor({ block, today, onSave, onRemove, onClose }) {
             onChange={(e) => {
               const [h, m] = e.target.value.split(':').map(Number)
               if (Number.isFinite(h)) {
-                act({ day: block.day ?? today, start_min: h * 60 + m })
+                // The day you are looking at, not today: scheduling a task while
+                // reading Thursday's plan should put it on Thursday.
+                act({ day: block.day ?? day, start_min: h * 60 + m })
               }
             }}
             aria-label="Start time"

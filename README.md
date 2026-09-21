@@ -62,7 +62,7 @@ Open <http://127.0.0.1:6770>. A fresh clone needs its dependencies first:
 
 ```
 python3 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt
+backend/.venv/bin/pip install -r backend/requirements-dev.txt   # runtime + tests
 bash scripts/setup_frontend.sh          # npm install + build
 ```
 
@@ -80,12 +80,14 @@ backend/app.py              the API and the block rules (FastAPI)
 backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
 backend/migrations/         numbered .sql files, applied on boot
 backend/test_*.py           77 tests
+scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 frontend/src/App.jsx        state and layout only
 frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
                             Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   76 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   91 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
+frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
 ```
@@ -132,8 +134,9 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 77 tests
-cd frontend && npm test                                # 8 unit tests, node --test
-cd frontend && npm run check:ui                        # 76 browser checks
+cd frontend && npm test                                # 18 unit tests, node --test
+cd frontend && npm run check:ui                        # 91 browser checks
+env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
 The browser checks drive headless Chromium with real mouse input — actual drags, not
@@ -186,7 +189,8 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.1.0 is the first working version, and it is in use daily. The honest gaps:
+v0.1.1. This one was about trust rather than features: it keeps what you type, and the day
+view describes the day accurately. The honest gaps:
 
 - **Calendar sync is half built.** Two providers, one model: the schema, the iCalendar
   conversion and the conflict rules are written and tested; the transports are not. iCloud
@@ -194,5 +198,9 @@ v0.1.0 is the first working version, and it is in use daily. The honest gaps:
   CalDAV was switched off in 2024, so it needs the REST API behind OAuth.
 - No repeating tasks or routines yet.
 - Notifications: the service worker is in place and listening, nothing sends yet.
+- After an upgrade the service worker can still serve the previous app until the page is
+  reloaded. Versioned assets are the fix; a hard reload is the workaround.
+- On a wide window the timeline is taller than the viewport, so the page scrolls instead
+  of the timeline, and the scroll-to-now when you open a day does nothing.
 
 MIT licensed — see [LICENSE](LICENSE).
