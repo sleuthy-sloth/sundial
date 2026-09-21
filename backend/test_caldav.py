@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 import caldav
+import calendar_errors
 
 STYLES = Path(__file__).resolve().parent.parent / "frontend" / "src" / "styles.css"
 
@@ -264,7 +265,10 @@ def test_a_password_is_never_carried_in_an_error(tmp_path):
         path = write_env(tmp_path, body)
         try:
             caldav.load_credentials(path)
-        except caldav.CalDavError as exc:
+        except calendar_errors.CalendarError as exc:
+            # CalendarError, not CalDavError: "nothing is configured yet" is a state rather
+            # than a CalDAV failure, so it lives in the shared module now. The assertion that
+            # matters is the one below, and it is unchanged.
             assert SECRET not in str(exc)
         else:
             pytest.fail("that file should not have loaded")

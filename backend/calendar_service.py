@@ -18,7 +18,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from caldav import CalDavClient, CalDavError, Credentials, NotConfigured, load_credentials
+import calendar_errors
+import google_calendar
+import google_oauth
+from caldav import CalDavClient, Credentials, load_credentials
+from calendar_errors import CalendarError, NotConfigured
 from store import db
 
 ROOT = Path(__file__).resolve().parent
@@ -41,6 +45,23 @@ EVENT_COLUMNS = (
 
 def config_path() -> Path:
     return Path(os.environ.get("SUNDIAL_ICLOUD_ENV", DEFAULT_CONFIG))
+
+
+def provider_error(provider: str) -> Optional[str]:
+    """The last failure that belonged to a whole provider rather than one calendar.
+
+    A calendar that fails carries its own `last_error`. This is for the case where there is
+    no calendar to hang it on — no route, refused credentials, a listing that came back
+    nonsense — and without it the rail can only say that nothing arrived, not why.
+    """
+    with db() as conn:
+        row = conn.execute(
+            """SELECT detail FROM sync_log
+               WHERE provider = ? AND action = 'error' AND calendar_ref IS NULL
+               ORDER BY id DESC LIMIT 1""",
+            (provider,),
+        ).fetchone()
+    return row["detail"] if row else None
 
 
 def configuration() -> tuple[Optional[Credentials], str]:
@@ -146,10 +167,14 @@ def recent_log(limit: int = 20) -> list[dict]:
 # --------------------------------------------------------------------- writing
 
 
-def _log(conn, calendar_ref: Optional[str], uid: Optional[str], action: str, detail: str = "") -> None:
+def _log(conn, calendar_ref: Optional[str], uid: Optional[str], action: str, detail: str = "",
+         *, provider: str) -> None:
+    """provider is keyword and required: this log is how a quiet conflict policy is audited
+    after the fact, and a line that says the wrong provider is worse than no line. Two
+    providers arrived, so "the one we have" stopped being an answer."""
     conn.execute(
         "INSERT INTO sync_log (at, provider, calendar_ref, uid, action, detail) VALUES (?, ?, ?, ?, ?, ?)",
-        (_now_iso(), "icloud", calendar_ref, uid, action, detail),
+        (_now_iso(), provider, calendar_ref, uid, action, detail),
     )
 
 
@@ -172,7 +197,8 @@ def _store_calendars(conn, found: list[dict]) -> None:
                 (calendar["ref"], calendar["provider"], calendar["name"], calendar["colour"],
                  calendar["writable"]),
             )
-            _log(conn, calendar["ref"], None, "calendar", f"found {calendar['name']}")
+            _log(conn, calendar["ref"], None, "calendar", f"found {calendar['name']}",
+                 provider=calendar["provider"])
         else:
             conn.execute(
                 "UPDATE calendars SET name = ?, colour = ?, writable = ? WHERE ref = ?",
@@ -194,7 +220,8 @@ def _upsert_events(conn, rows: list[dict]) -> tuple[int, int, int]:
                 tuple(row.get(column) for column in EVENT_COLUMNS),
             )
             added += 1
-            _log(conn, row["calendar_ref"], row["uid"], "import", row["title"])
+            _log(conn, row["calendar_ref"], row["uid"], "import", row["title"],
+                 provider=row["provider"])
             continue
 
         before = dict(local)
@@ -212,7 +239,8 @@ def _upsert_events(conn, rows: list[dict]) -> tuple[int, int, int]:
             (*(merged.get(column) for column in EVENT_COLUMNS), row["id"]),
         )
         updated += 1
-        _log(conn, row["calendar_ref"], row["uid"], "update", ", ".join(changed))
+        _log(conn, row["calendar_ref"], row["uid"], "update", ", ".join(changed),
+             provider=row["provider"])
     return added, updated, unchanged
 
 
@@ -220,7 +248,8 @@ def _known_ids(rows: list[dict]) -> set[str]:
     return {row["id"] for row in rows}
 
 
-def _reconcile(conn, ref: str, seen: set[str], window_start: datetime, window_end: datetime) -> int:
+def _reconcile(conn, ref: str, seen: set[str], window_start: datetime, window_end: datetime,
+               *, provider: str) -> int:
     """Delete events this calendar says are gone. The dangerous half of a sync.
 
     Two rules, and both are load-bearing:
@@ -249,23 +278,87 @@ def _reconcile(conn, ref: str, seen: set[str], window_start: datetime, window_en
             continue
         conn.execute("DELETE FROM events WHERE id = ?", (row["id"],))
         removed += 1
-        _log(conn, ref, row["uid"], "remove", f"{row['title']} — no longer on the server")
+        _log(conn, ref, row["uid"], "remove", f"{row['title']} — no longer on the server",
+             provider=provider)
     return removed
 
 
 # --------------------------------------------------------------------- the sync
 
 
-def sync(*, if_stale_seconds: int = 0, transport=None, client: Optional[CalDavClient] = None) -> dict:
-    """Fetch every enabled calendar, store what changed, and say what happened.
+@dataclass(frozen=True)
+class Source:
+    """A provider we could sync, and either its credentials or a sentence for a person."""
 
-    if_stale_seconds exists so the interface can ask on every open without hammering
-    iCloud: an unanswered question is cheaper than a round trip, and a 15-minute-old
-    answer is fine for a calendar.
-    """
+    provider: str
+    credentials: Optional[object] = None
+    why: str = ""
+
+    @property
+    def configured(self) -> bool:
+        return self.credentials is not None
+
+
+def icloud_source() -> Source:
     credentials, why = configuration()
-    if credentials is None and client is None:
-        raise NotConfigured(why)
+    return Source("icloud", credentials, why)
+
+
+def google_source() -> Source:
+    try:
+        found = google_oauth.load_configuration(google_oauth.config_path())
+    except NotConfigured as exc:
+        return Source("google", None, str(exc))
+    if not found.connected:
+        # A client id and secret with no refresh token are half a connection: everything is
+        # in place and nobody has said yes yet.
+        return Source("google", None,
+                      "Google credentials are saved but the account is not connected yet")
+    return Source("google", found, "")
+
+
+def sources() -> list[Source]:
+    """Every provider, configured or not, so the interface can say what is missing rather
+    than only what is present. iCloud first because it is the one that ships."""
+    return [icloud_source(), google_source()]
+
+
+def _session_for(source: Source, transport=None):
+    if source.provider == "google":
+        return google_calendar.GoogleCalendar(
+            google_oauth.GoogleAuth(source.credentials, transport=transport)
+        )
+    return CalDavClient(source.credentials, transport=transport)
+
+
+def sync(
+    *,
+    if_stale_seconds: int = 0,
+    transport=None,
+    client: Optional[CalDavClient] = None,
+    google_session=None,
+    providers: Optional[list[str]] = None,
+) -> dict:
+    """Fetch every enabled calendar of every configured provider, and say what happened.
+
+    if_stale_seconds exists so the interface can ask on every open without hammering a
+    server: an unanswered question is cheaper than a round trip, and a 15-minute-old
+    answer is fine for a calendar.
+
+    One provider failing to answer does not stop the other: each calendar carries its own
+    error, which is what the rail shows.
+    """
+    planned: list[tuple[Source, object]] = []
+    for source in sources():
+        if providers is not None and source.provider not in providers:
+            continue
+        injected = client if source.provider == "icloud" else google_session
+        if source.configured or injected is not None:
+            planned.append((source, injected))
+    if not planned:
+        raise NotConfigured(
+            "; ".join(s.why for s in sources() if s.why) or "no calendar is configured"
+        )
 
     at = last_sync()
     moment = _parse(at)
@@ -276,78 +369,102 @@ def sync(*, if_stale_seconds: int = 0, transport=None, client: Optional[CalDavCl
     window_start = datetime.now(timezone.utc) - timedelta(days=WINDOW_BACK_DAYS)
     window_end = window_start + timedelta(days=WINDOW_BACK_DAYS + WINDOW_FORWARD_DAYS)
 
-    session = client
-    if session is None:
-        assert credentials is not None  # guaranteed by the guard above
-        session = CalDavClient(credentials, transport=transport)
-    try:
-        found = session.calendars()
+    outcomes: list[Outcome] = []
+    provider_errors: list[dict] = []
+    for source, injected in planned:
+        session = injected if injected is not None else _session_for(source, transport=transport)
+        try:
+            outcomes.extend(_sync_provider(source, session, window_start, window_end))
+        except CalendarError as exc:
+            # A provider that cannot answer at all — no route, refused credentials, a listing
+            # that came back nonsense — is one entry in the result rather than the end of the
+            # sync. The other provider's calendars were already stored on the way past, and
+            # taking the whole sync down would report a working calendar as a broken one.
+            with db() as conn:
+                _log(conn, None, None, "error", str(exc), provider=source.provider)
+            provider_errors.append({"provider": source.provider, "error": str(exc)})
+        finally:
+            if injected is None:
+                session.close()
+
+    return {
+        "at": _now_iso(),
+        "window": {"start": window_start.isoformat(timespec="seconds"),
+                   "end": window_end.isoformat(timespec="seconds")},
+        "calendars": [o.as_dict() for o in outcomes],
+        "provider_errors": provider_errors,
+        "totals": _totals(outcomes),
+    }
+
+
+def _sync_provider(source: Source, session, window_start: datetime, window_end: datetime) -> list[Outcome]:
+    """One provider's session: the listing, then a window per calendar.
+
+    Everything past the fetch is the part that deletes, and it is only reached once a fetch
+    has completed. The rules live in `_reconcile`; this function's whole job is to not call
+    it when the answer is missing.
+    """
+    provider = source.provider
+    found = session.calendars()
+    with db() as conn:
+        if found:
+            _store_calendars(conn, found)
+        else:
+            # A listing that came back empty is a server having a bad day, not a person
+            # deleting every calendar: do not disable anything on the strength of it.
+            _log(conn, None, None, "error", "the server listed no calendars; nothing changed",
+                 provider=provider)
+
+    outcomes: list[Outcome] = []
+    for calendar in found:
+        ref = calendar["ref"]
+        name = calendar["name"]
         with db() as conn:
-            if found:
-                _store_calendars(conn, found)
-            else:
-                # A listing that came back empty is a server having a bad day, not a person
-                # deleting every calendar: do not disable anything on the strength of it.
-                _log(conn, None, None, "error", "the server listed no calendars; nothing changed")
-
-        outcomes: list[Outcome] = []
-        for calendar in found:
-            ref = calendar["ref"]
-            name = calendar["name"]
+            stored = conn.execute("SELECT * FROM calendars WHERE ref = ?", (ref,)).fetchone()
+        if stored is None or not stored["enabled"]:
+            continue
+        # Only a calendar that has actually been read once can be skipped on the strength
+        # of its ctag; before that the cursor means nothing. Google calendars never carry
+        # one, so they always fetch — see google_calendar.py.
+        if stored["last_sync"] and stored["ctag"] and stored["ctag"] == calendar["ctag"]:
+            outcomes.append(Outcome(ref, name, skipped=True))
             with db() as conn:
-                stored = conn.execute("SELECT * FROM calendars WHERE ref = ?", (ref,)).fetchone()
-            if stored is None or not stored["enabled"]:
-                continue
-            # Only a calendar that has actually been read once can be skipped on the
-            # strength of its ctag; before that the cursor means nothing.
-            if stored["last_sync"] and stored["ctag"] and stored["ctag"] == calendar["ctag"]:
-                outcomes.append(Outcome(ref, name, skipped=True))
-                with db() as conn:
-                    conn.execute("UPDATE calendars SET last_sync = ?, last_error = NULL WHERE ref = ?",
-                                 (_now_iso(), ref))
-                continue
+                conn.execute("UPDATE calendars SET last_sync = ?, last_error = NULL WHERE ref = ?",
+                             (_now_iso(), ref))
+            continue
 
-            try:
-                rows, cancelled = session.events(ref, window_start, window_end)
-            except CalDavError as exc:
-                outcomes.append(Outcome(ref, name, error=str(exc)))
-                with db() as conn:
-                    conn.execute("UPDATE calendars SET last_error = ?, last_sync = ? WHERE ref = ?",
-                                 (str(exc), _now_iso(), ref))
-                    _log(conn, ref, None, "error", str(exc))
-                continue
-
-            # The fetch completed, so absence now means something. Everything above this
-            # line may fail freely; below it, the deleting starts.
+        try:
+            rows, cancelled = session.events(ref, window_start, window_end)
+        except CalendarError as exc:
+            outcomes.append(Outcome(ref, name, error=str(exc)))
             with db() as conn:
-                added, updated, unchanged = _upsert_events(conn, rows)
-                seen = _known_ids(rows)
-                cancelled_removed = 0
-                for uid in cancelled:
-                    gone = conn.execute(
-                        "DELETE FROM events WHERE calendar_ref = ? AND uid = ?", (ref, uid)
-                    ).rowcount
-                    if gone:
-                        cancelled_removed += gone
-                        _log(conn, ref, uid, "remove", "the server says cancelled")
-                removed = cancelled_removed + _reconcile(conn, ref, seen, window_start, window_end)
-                conn.execute(
-                    "UPDATE calendars SET ctag = ?, last_sync = ?, last_error = NULL WHERE ref = ?",
-                    (calendar["ctag"], _now_iso(), ref),
-                )
-            outcomes.append(Outcome(ref, name, added=added, updated=updated, removed=removed,
-                                    unchanged=unchanged))
+                conn.execute("UPDATE calendars SET last_error = ?, last_sync = ? WHERE ref = ?",
+                             (str(exc), _now_iso(), ref))
+                _log(conn, ref, None, "error", str(exc), provider=provider)
+            continue
 
-        return {
-            "at": _now_iso(),
-            "window": {"start": window_start.isoformat(timespec="seconds"),
-                       "end": window_end.isoformat(timespec="seconds")},
-            "calendars": [o.as_dict() for o in outcomes],
-            "totals": _totals(outcomes),
-        }
-    finally:
-        if client is None:
-            session.close()
+        # The fetch completed, so absence now means something. Everything above this line
+        # may fail freely; below it, the deleting starts.
+        with db() as conn:
+            added, updated, unchanged = _upsert_events(conn, rows)
+            seen = _known_ids(rows)
+            cancelled_removed = 0
+            for uid in cancelled:
+                gone = conn.execute(
+                    "DELETE FROM events WHERE calendar_ref = ? AND uid = ?", (ref, uid)
+                ).rowcount
+                if gone:
+                    cancelled_removed += gone
+                    _log(conn, ref, uid, "remove", "the server says cancelled", provider=provider)
+            removed = cancelled_removed + _reconcile(conn, ref, seen, window_start, window_end,
+                                                     provider=provider)
+            conn.execute(
+                "UPDATE calendars SET ctag = ?, last_sync = ?, last_error = NULL WHERE ref = ?",
+                (calendar["ctag"], _now_iso(), ref),
+            )
+        outcomes.append(Outcome(ref, name, added=added, updated=updated, removed=removed,
+                                unchanged=unchanged))
+    return outcomes
 
 
 def _totals(outcomes: list[Outcome]) -> dict:

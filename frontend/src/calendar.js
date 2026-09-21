@@ -63,6 +63,21 @@ export function statusLine(status, note = '', now = Date.now()) {
   return parts.join(' · ')
 }
 
+/** How a provider that is not the one shipping should read.
+ *
+ * Google is built and tested end to end and deliberately not switched on in the interface:
+ * the step nobody can skip is a person walking Google's own console, so the panel says
+ * "coming soon" rather than offering a button whose only outcome is a failure. Configured,
+ * it says what it is instead — the honest state either way, and no dead control.
+ */
+export function providerNote(provider) {
+  const name = provider?.provider === 'google' ? 'Google Calendar' : (provider?.provider ?? '')
+  if (!name) return ''
+  if (provider.last_error) return `${name} — ${provider.last_error}`
+  if (!provider.configured) return `${name} — coming soon.`
+  return provider.account ? `${name} — connected as ${provider.account}` : `${name} — connected`
+}
+
 /** Whether the panel has ever looked at a calendar: it can say "nothing on the calendar"
  *  only once something has been read. Before that, blank is the honest state. */
 export function hasLooked(status) {

@@ -21,14 +21,18 @@ bug in it can annoy you by showing the wrong thing but cannot damage your actual
 Because of credentials, not preference. iCloud speaks CalDAV behind an app-specific
 password: generate one at appleid.apple.com, paste two lines into a file, done. Google
 switched password-based CalDAV off in 2024, so it needs an OAuth client, a consent flow
-and refresh handling — a later slice, and the transport boundary below is what keeps it
-from being a rewrite.
+and refresh handling — a slice of its own, and the transport boundary below is what kept it
+from being a rewrite. That slice is now written: see "Google: built, not switched on".
 
 ## The pieces
 
-    backend/caldav.py            the transport: CalDAV in, rows out. No database.
-    backend/calendar_sync.py     the pure half, already written: ICS ⇄ rows, conflict rules
+    backend/caldav.py            the iCloud transport: CalDAV in, rows out. No database.
+    backend/google_calendar.py   the Google transport: REST in, rows out. Not enabled.
+    backend/google_oauth.py      the consent flow: PKCE, state, the 0600 token file
+    backend/calendar_sync.py     the pure half: ICS and Google JSON ⇄ rows, conflict rules
     backend/calendar_service.py  the engine: config, transport, rules, database, sync_log
+    backend/palette.py           the eight colours, and how a foreign one lands on one
+    backend/calendar_errors.py   the error vocabulary both transports speak
     scripts/check_calendar.py    a live check you run once by hand
 
 The split matters. `calendar_sync.py` has no network and no database, so the fiddly parts
@@ -95,6 +99,54 @@ Read per sync rather than at boot, so pasting a password does not need a service
 missing file, a missing key, or a file with the wrong shape all produce the same honest
 state: not configured, and here is what to create.
 
+`google.env`, same rules, for the provider that is not switched on yet:
+
+    GOOGLE_CLIENT_ID=....apps.googleusercontent.com
+    GOOGLE_CLIENT_SECRET=...
+    GOOGLE_REFRESH_TOKEN=            # written by the callback, never by hand
+    GOOGLE_ACCOUNT=                  # whatever Google said the address was
+    GOOGLE_REDIRECT_URI=             # optional; the request's own origin is used otherwise
+
+`GOOGLE_REDIRECT_URI` exists so no hostname has to live in the repository — the same reasoning
+as `VITE_APP_URL` — and is only needed when something in front of the app rewrites `Host`.
+
+## Google: built, not switched on
+
+The second transport exists, is tested, and is not reachable from the interface. What is
+finished: `google_calendar.py` (REST, read-only, wearing `caldav.py`'s interface so the engine
+cannot tell them apart), `google_oauth.py` (PKCE, single-use state, tokens cached in memory,
+the config file written 0600 by rename), the mapping in `calendar_sync.py`, and the two routes
+`/oauth/google/start` and `/oauth/google/callback`.
+
+**Why REST and not CalDAV.** Google's CalDAV endpoint accepts only the full `calendar` scope,
+which is write access to every calendar in the account. Asking for that while this document
+promises read-only would keep the promise in the interface and break it in the token. The REST
+API accepts `calendar.readonly`, so the grant itself cannot write.
+
+**Two things about Google shape the code.** A `calendarList` etag does *not* change when events
+change, so it is not a skip-fetch cursor; a calendar's own ctag is, and the REST API does not
+offer one, so Google calendars always fetch their window. And a consent screen left in
+"Testing" has its refresh tokens revoked after exactly seven days, forever — publishing it (In
+production, unverified, personal use) is what makes a token last. That is why `Reconnect` is
+its own error class: "needs reconnecting" is a person clicking something, not a server being
+down, and the rail should not say the wrong one.
+
+**What is left** is the part no code can do — a person in Google's console:
+
+1. A project, with the **Google Calendar API** enabled.
+2. An External consent screen, app name `sundial`, the scope
+   `https://www.googleapis.com/auth/calendar.readonly` (plus `openid` and `email`), and your own
+   address added as a test user.
+3. **Publish the app.** Left in Testing, every token dies after seven days.
+4. Credentials → OAuth client ID → Web application, with both redirect URIs:
+
+       https://<your-host>/oauth/google/callback
+       http://127.0.0.1:8123/oauth/google/callback
+
+Then `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` go into `google.env` (0600, gitignored),
+the credentials form in the panel follows, and the `coming_soon` flag comes off — one line in
+`app.py`, one sentence in the panel.
+
 ## Scheduling
 
 No daemon and no timer in this slice. The calendar view asks for a sync when it opens, and
@@ -105,7 +157,9 @@ while nobody is looking, point a systemd timer at `scripts/check_calendar.py --s
 ## Deliberately not in this slice
 
 - Pushing blocks out (the conversion exists, the transport call does not).
-- Google (OAuth).
+- Google in the interface. The transport, the consent flow and the token file are written and
+  tested (above); what is missing is a person in Google's console, so the panel says "coming
+  soon" rather than offering a control that could only fail.
 - Incremental sync via RFC 6578 `sync-collection`. A ctag comparison decides whether to
   refetch at all; when it does, it refetches the window. Windows are small enough that this
   is honest, and the failure mode of a hand-rolled sync-token is a silently missing event.

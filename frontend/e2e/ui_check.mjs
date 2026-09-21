@@ -1476,6 +1476,12 @@ const wantThemeLight = async () => {
     'no sync button while unconfigured',
   )
   check(
+    'and says what is not switched on yet, in words rather than a dead control',
+    /Google Calendar — coming soon/.test(panel) &&
+      (await page.locator('.cal-other button').count()) === 0,
+    panel.split('\n').filter((line) => /Google/.test(line))[0] ?? 'nothing about Google',
+  )
+  check(
     'and shows no events, because it has never read any',
     (await page.locator('.cal-event').count()) === 0 &&
       !/Nothing on the calendar/.test(panel),

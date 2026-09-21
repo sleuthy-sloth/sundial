@@ -19,6 +19,7 @@ import pytest  # noqa: E402
 
 import app as sundial  # noqa: E402
 import caldav  # noqa: E402
+import calendar_errors  # noqa: E402
 import calendar_service as service  # noqa: E402
 import store  # noqa: E402
 
@@ -524,3 +525,146 @@ def test_events_between_ignores_a_disabled_calendar():
 
     now = datetime.now(timezone.utc)
     assert service.events_between(now - timedelta(days=1), now + timedelta(days=7)) == []
+
+
+# ------------------------------------------------------------------- two providers
+
+GOOGLE_REF = "steve@example.com"
+
+
+class FakeGoogle:
+    """The Google transport's whole contract: two methods and a close.
+
+    Nothing here speaks HTTP, which is the point — the engine must not care which transport
+    it is holding, and a stub that satisfies it in ten lines proves the seam is real.
+    """
+
+    def __init__(self, calendars=None, events=None, fail=None) -> None:
+        self._calendars = calendars if calendars is not None else [
+            {"ref": GOOGLE_REF, "provider": "google", "name": "Personal",
+             "colour": "sky", "ctag": None, "writable": 1}
+        ]
+        self._events = events if events is not None else [
+            {"id": f"{GOOGLE_REF}|g1|", "calendar_ref": GOOGLE_REF, "provider": "google",
+             "uid": "g1", "recurrence_id": "", "title": "Squadron standup",
+             "location": "", "notes": "", "start_utc": in_days(1),
+             "end_utc": in_days(1), "all_day": 0, "rrule": None, "raw_ics": "{}",
+             "status": "CONFIRMED", "etag": "e1", "sequence": 0,
+             "updated_at": "2026-09-21T00:00:00+00:00"}
+        ]
+        self._fail = fail
+        self.fetched = 0
+        self.closed = False
+
+    def calendars(self):
+        if self._fail == "list":
+            raise calendar_errors.CalendarError("Google answered 503: Backend Error")
+        return self._calendars
+
+    def events(self, ref, start, end):
+        self.fetched += 1
+        if self._fail == "events":
+            raise calendar_errors.Reconnect("Google no longer accepts this authorization")
+        return list(self._events), []
+
+    def close(self):
+        self.closed = True
+
+
+def test_sources_names_both_providers_even_when_neither_is_configured():
+    """The interface has to be able to say what is missing, which means knowing about a
+    provider that has no credentials at all."""
+    found = {source.provider: source for source in service.sources()}
+    assert set(found) == {"icloud", "google"}
+    assert not found["icloud"].configured and "icloud.env" in found["icloud"].why
+    assert not found["google"].configured and "google.env" in found["google"].why
+    assert [s.provider for s in service.sources()][0] == "icloud", "the shipping one first"
+
+
+def test_a_google_account_that_never_said_yes_is_not_configured(tmp_path, monkeypatch):
+    """A client id and secret with no refresh token is half a connection, and calling that
+    configured would send a sync out to fail."""
+    path = tmp_path / "google.env"
+    path.write_text("GOOGLE_CLIENT_ID=x.apps.googleusercontent.com\nGOOGLE_CLIENT_SECRET=y\n",
+                    encoding="utf-8")
+    monkeypatch.setenv("SUNDIAL_GOOGLE_ENV", str(path))
+    google = {s.provider: s for s in service.sources()}["google"]
+    assert not google.configured
+    assert "not connected" in google.why
+
+
+def test_both_providers_sync_in_one_run():
+    server = FakeServer()
+    server.event("dentist-1", "Dentist", in_days(1))
+    google = FakeGoogle()
+    result = service.sync(client=server.client(), google_session=google)
+
+    assert {c["name"] for c in result["calendars"]} == {"Home", "Personal"}
+    assert len(rows(HOME_REF)) == 1
+    assert len(rows(GOOGLE_REF)) == 1
+
+
+def test_a_google_calendar_is_stored_as_a_google_calendar():
+    server = FakeServer()
+    service.sync(client=server.client(), google_session=FakeGoogle())
+    with store.db() as conn:
+        providers = {r["ref"]: r["provider"] for r in conn.execute("SELECT ref, provider FROM calendars")}
+        event_providers = {r["provider"] for r in conn.execute(
+            "SELECT provider FROM events WHERE calendar_ref = ?", (GOOGLE_REF,))}
+        logged = {r["provider"] for r in conn.execute(
+            "SELECT provider FROM sync_log WHERE calendar_ref = ?", (GOOGLE_REF,))}
+
+    assert providers[HOME_REF] == "icloud" and providers[GOOGLE_REF] == "google"
+    assert event_providers == {"google"}
+    assert logged == {"google"}, "the log says which provider it came from"
+
+
+def test_one_provider_failing_does_not_report_the_other_as_broken():
+    server = FakeServer()
+    server.event("dentist-1", "Dentist", in_days(1))
+    """iCloud is working. A Google outage must not turn that into a failed sync."""
+    broken = FakeGoogle(fail="list")
+    service.sync(client=server.client(), google_session=broken)
+
+    assert len(rows(HOME_REF)) == 1, "the working provider's events stand"
+    assert rows(GOOGLE_REF) == []
+
+
+def test_a_provider_that_cannot_list_is_reported_where_it_can_be_seen():
+    server = FakeServer()
+    result = service.sync(client=server.client(), google_session=FakeGoogle(fail="list"))
+    errors = {e["provider"]: e["error"] for e in result["provider_errors"]}
+    assert "503" in errors["google"]
+    assert result["totals"]["errors"] == 0, "not a per-calendar error: nothing was reached"
+
+
+def test_a_calendar_that_vanished_mid_sync_is_a_reconnect_not_a_wipe():
+    server = FakeServer()
+    """The dangerous shape: the provider answers the listing and refuses the events."""
+    result = service.sync(client=server.client(), google_session=FakeGoogle(fail="events"))
+    by_ref = {c["ref"]: c for c in result["calendars"]}
+    assert by_ref[GOOGLE_REF]["error"] and "no longer accepts" in by_ref[GOOGLE_REF]["error"]
+
+
+def test_google_calendars_always_fetch_their_window():
+    server = FakeServer()
+    """No ctag means no skipping — a calendarList etag does not move when events change."""
+    google = FakeGoogle()
+    service.sync(client=server.client(), google_session=google)
+    first = google.fetched
+    service.sync(client=server.client(), google_session=google)
+    assert google.fetched == first + 1, "a second sync must still ask"
+
+
+def test_the_sync_can_be_narrowed_to_one_provider():
+    server = FakeServer()
+    google = FakeGoogle()
+    service.sync(client=server.client(), google_session=google, providers=["icloud"])
+    assert google.fetched == 0
+
+
+def test_an_injected_session_is_not_closed_and_a_built_one_is():
+    server = FakeServer()
+    google = FakeGoogle()
+    service.sync(client=server.client(), google_session=google)
+    assert google.closed is False, "the caller owns what it injected: the tests reuse it"
