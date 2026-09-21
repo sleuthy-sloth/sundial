@@ -25,6 +25,27 @@ const check = (name, pass, detail = '') => {
   if (!pass) failures++
 }
 
+/** Wait for something to be true, rather than betting the runner is fast enough.
+ *
+ * Several checks here used to wait a fixed 300-400ms and then ask the API what happened.
+ * That is a bet on the machine, and it lost in CI: the delete and empty-day checks failed
+ * on a slow runner while passing everywhere else. Polling costs a fast machine nothing and
+ * gives a slow one the time it needs, and the timeout still fails the check rather than
+ * hanging. A request that fails mid-flight is simply not the answer yet. */
+const until = async (fn, timeout = 6000, step = 50) => {
+  const deadline = Date.now() + timeout
+  let value
+  for (;;) {
+    try {
+      value = await fn()
+    } catch {
+      value = undefined
+    }
+    if (value || Date.now() > deadline) return value
+    await page.waitForTimeout(step)
+  }
+}
+
 const req = async (path, init) => {
   const res = await fetch(`${BASE}/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -83,20 +104,20 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   // the checkbox on a card completes the task
   const card = page.locator('.section-morning .card').filter({ hasText: 'ui-check walk' }).first()
   await card.locator('.tick').click()
-  await page.waitForTimeout(300)
-  check('the card checkbox marks it done', (await find(walk.id)).done === true)
-  check('and the card shows it', (await page.locator('.card.done').count()) >= 1)
+  check('the card checkbox marks it done', Boolean(await until(async () => (await find(walk.id))?.done === true)))
+  check('and the card shows it', Boolean(await until(async () => (await page.locator('.card.done').count()) >= 1)))
   await page.locator('.card.done .tick').first().click()
-  await page.waitForTimeout(300)
-  check('and un-marks it', (await find(walk.id)).done === false)
+  check('and un-marks it', Boolean(await until(async () => (await find(walk.id))?.done === false)))
 
   // capture from the list
   await page.locator('.capture-card input').fill('ui-check captured')
   await page.locator('.capture-card input').press('Enter')
-  await page.waitForTimeout(400)
-  const captured = (await inboxNow()).find((b) => b.title === 'ui-check captured')
+  const captured = await until(async () => (await inboxNow()).find((b) => b.title === 'ui-check captured'))
   check('typing in the capture field adds to Anytime', Boolean(captured))
-  check('and it appears on the page', (await inSection('.section-anytime', 'ui-check captured')) === 1)
+  check(
+    'and it appears on the page',
+    Boolean(await until(async () => (await inSection('.section-anytime', 'ui-check captured')) === 1)),
+  )
   if (captured) made.push(captured.id)
 }
 
@@ -184,12 +205,14 @@ const boxOf = async (text) => {
   await page.mouse.move(chip.x + 60, targetY - 20)
   await page.mouse.move(content.x + content.width / 2, targetY)
   await page.mouse.up()
-  await page.waitForTimeout(300)
 
-  const after = await find(loose.id)
+  const after = await until(async () => {
+    const b = await find(loose.id)
+    return b?.day === today && b?.start_min != null ? b : undefined
+  })
   check('inbox drag schedules the block', after?.day === today && after?.start_min != null, `day=${after?.day}`)
   check('it lands under the pointer', after?.start_min === expected, `expected ${expected}, got ${after?.start_min}`)
-  check('and it left the inbox', (await inboxNow()).every((b) => b.id !== loose.id))
+  check('and it left the inbox', Boolean(await until(async () => (await inboxNow()).every((b) => b.id !== loose.id))))
 }
 
 // ---- double-click empty timeline creates a block ----
@@ -251,16 +274,15 @@ const boxOf = async (text) => {
 // ---- deleting from the editor ----
 {
   await page.locator('.editor button.danger').click()
-  await page.waitForTimeout(300)
-  check('delete removes the block', !(await find(walk.id)))
+  check('delete removes the block', Boolean(await until(async () => !(await find(walk.id)))))
   if (made.includes(walk.id)) made.splice(made.indexOf(walk.id), 1)
 }
 
 // ---- a day with nothing on it draws nothing ----
 {
   await page.fill('.day-head input[type="date"]', EMPTY_DAY)
-  await page.waitForTimeout(400)
-  check('an empty day draws no blocks', (await page.locator('.content .block').count()) === 0)
+  const settled = await until(async () => (await page.locator('.timeline-empty').count()) === 1)
+  check('an empty day draws no blocks', Boolean(settled) && (await page.locator('.content .block').count()) === 0)
   await page.fill('.day-head input[type="date"]', today)
   await page.waitForTimeout(400)
 }
@@ -312,11 +334,10 @@ const boxOf = async (text) => {
   const box = await boxOf('ui-check icon')
   await page.mouse.click(box.x + box.width / 2, box.y + 18)
   await page.locator('.editor .icon-pick').nth(3).click() // nth(0) is the "no icon" dash
-  await page.waitForTimeout(400)
 
-  const stored = (await find(icon_block.id)).icon
+  const stored = (await until(async () => (await find(icon_block.id))?.icon)) || ''
   check('picking an icon stores it', stored.length > 0, `icon=${stored}`)
-  check('and the block draws it', (await page.locator('.content .block .block-icon').count()) >= 1)
+  check('and the block draws it', Boolean(await until(async () => (await page.locator('.content .block .block-icon').count()) >= 1)))
 }
 
 // ---- free time between blocks is visible, not implied ----
@@ -337,8 +358,7 @@ const boxOf = async (text) => {
 // ---- an empty day says so in words ----
 {
   await page.fill('.day-head input[type="date"]', EMPTY_DAY)
-  await page.waitForTimeout(400)
-  check('an empty day explains itself', (await page.locator('.timeline-empty').count()) === 1)
+  check('an empty day explains itself', Boolean(await until(async () => (await page.locator('.timeline-empty').count()) === 1)))
   await page.fill('.day-head input[type="date"]', today)
   await page.waitForTimeout(400)
 }
@@ -390,7 +410,9 @@ const boxOf = async (text) => {
     const release = held
     held = null
     if (release) await release.continue()
-    await page.waitForTimeout(800)
+    // Once a held write is let go, the question is what the API eventually holds, not what
+    // it holds 800ms later on a fast machine.
+    await until(async () => (await find(typing.id)).title === 'slow and deliberate')
     check(
       'and the API ends up with that exact string',
       (await find(typing.id)).title === 'slow and deliberate',
@@ -455,7 +477,7 @@ const boxOf = async (text) => {
 
     refuse = false
     await page.locator('.editor-status button').click()
-    await page.waitForTimeout(700)
+    await until(async () => (await find(typing.id)).title === 'ui-check after a failure')
     check(
       'and retrying saves it',
       (await find(typing.id)).title === 'ui-check after a failure',
@@ -565,9 +587,8 @@ const boxOf = async (text) => {
     await page.locator('.inbox .chip').filter({ hasText: 'ui-check future' }).first().click()
     await page.waitForSelector('.editor .title-input')
     await page.locator('.editor input[type="date"]').fill(future)
-    await page.waitForTimeout(700)
 
-    const landed = (await blocksOn(future)).find((b) => b.id === item.id)
+    const landed = await until(async () => (await blocksOn(future)).find((b) => b.id === item.id))
     check('a date in the editor schedules on that date', landed?.day === future, `day=${landed?.day}`)
     check('and it is no longer on today', !(await blocksOn(today)).some((b) => b.id === item.id))
     await page.reload({ waitUntil: 'networkidle' })

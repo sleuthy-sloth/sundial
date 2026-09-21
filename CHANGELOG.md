@@ -1,5 +1,14 @@
 # What changed, and when. Dates, and what to do about them.
 
+## Unreleased
+
+- The browser checks wait for an outcome instead of betting the machine is fast enough.
+  Seven of them asserted against the API or a freshly loaded day a fixed 300-400ms after
+  the click that caused it. On a slow CI runner that bet loses, and it did: the delete and
+  empty-day checks failed there while passing everywhere else. They poll now, with a
+  timeout that still fails the check rather than hanging. Against a backend deliberately
+  slowed to 600ms a call, the old suite fails five checks; this one passes all 95.
+
 ## 0.1.2 — 2026-09-20
 
 ### Fixed
