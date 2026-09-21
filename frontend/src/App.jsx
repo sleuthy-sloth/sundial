@@ -15,15 +15,25 @@ import Timeline from './components/Timeline'
 import Editor from './components/Editor'
 import Agenda from './components/Agenda'
 import CalendarPanel from './components/CalendarPanel'
+import TabBar from './components/TabBar'
+import Profile from './components/Profile'
 
 const VIEW_KEY = 'sundial-view'
+const TABS = ['today', 'day', 'you']
 // Where a new task lands in a section that has nothing in it yet.
 const SECTION_START = { morning: 8 * 60, afternoon: 13 * 60, evening: 18 * 60 }
 
 export default function App() {
-  const [view, setView] = useState(() =>
-    localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'todo',
-  )
+  // Where you are: the plan, the clock, or the app's own settings — the three destinations the
+  // tab bar offers, and the same three at every width. The old names are read once so a browser
+  // that remembered them lands somewhere sensible instead of nowhere.
+  const [tab, setTab] = useState(() => {
+    const remembered = localStorage.getItem(VIEW_KEY)
+    if (TABS.includes(remembered)) return remembered
+    if (remembered === 'todo') return 'today'
+    if (remembered === 'calendar') return 'day'
+    return 'today'
+  })
   const [day, setDay] = useState(todayISO())
   const [today, setToday] = useState(todayISO())
   const [blocks, setBlocks] = useState([])
@@ -64,7 +74,7 @@ export default function App() {
 
   useEffect(() => { applyTheme(theme) }, [theme])
   useEffect(() => () => timers.current.forEach(window.clearTimeout), [])
-  useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
+  useEffect(() => { localStorage.setItem(VIEW_KEY, tab) }, [tab])
 
   const load = useCallback(async () => {
     // A request already on its way is for a day you have left. Drop it rather than let
@@ -128,21 +138,21 @@ export default function App() {
   )
 
   useEffect(() => {
-    if (view !== 'calendar') return
+    if (tab !== 'day' && tab !== 'you') return
     loadCalendar(day)
-  }, [view, day, loadCalendar])
+  }, [tab, day, loadCalendar])
 
-  /** Opening the calendar view is the schedule. The server decides whether that means going
+  /** Opening the day is the schedule. The server decides whether that means going
    *  to iCloud, so switching views never hammers it, and nothing runs in the background
    *  while the app is shut — a choice, explained in docs/calendar-sync.md.
    *
    *  Waits for the status before asking: syncing with nothing to sync with produces a
    *  refusal, and the rail would carry a filesystem path where a sentence belongs. */
   useEffect(() => {
-    if (view !== 'calendar' || !calendar?.configured || askedToSync.current) return
+    if (tab !== 'day' || !calendar?.configured || askedToSync.current) return
     askedToSync.current = true
     runSync(900)
-  }, [view, calendar, runSync])
+  }, [tab, calendar, runSync])
 
   /** Typing a credential into the panel: the only secret this app is ever given.
 
@@ -210,7 +220,7 @@ export default function App() {
     if (!scrollerRef.current) return
     const focusMin = day === todayISO() ? nowMin - 30 : 7 * 60
     scrollerRef.current.scrollTop = Math.max(0, (focusMin / 60) * HOUR_PX - 60)
-  }, [day, view]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [day, tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setGhostValue = (g) => { ghostRef.current = g; setGhost(g) }
 
@@ -452,13 +462,15 @@ export default function App() {
   // not two hours of your day, and "open" has to mean open.
   const planned = busyMinutes(blocks)
   const layout = ['layout']
-  if (view === 'calendar') layout.push('with-rail')
+  if (tab === 'day') layout.push('with-rail')
   if (selected) layout.push('with-editor')
 
   return (
     <div className={layout.join(' ')}>
-      {view === 'calendar' && (
+      {tab === 'day' && (
         <aside className="side">
+          {/* Above 780px only, and only on the clock: the inbox is a drag source, and a drag
+              needs somewhere to land. On a phone the same tasks are in Today. */}
           <h1 className="brand">sundial</h1>
           <Inbox
             items={inbox}
@@ -469,16 +481,6 @@ export default function App() {
             onPointerDown={beginDrag}
             onSelect={setSelectedId}
           />
-          <CalendarPanel
-            status={calendar}
-            events={calendarDay.events}
-            busy={syncing}
-            note={calendarNote}
-            onSync={runSync}
-            onToggle={toggleCalendar}
-            onConnect={connectCalendar}
-            connecting={connecting}
-          />
         </aside>
       )}
 
@@ -488,16 +490,14 @@ export default function App() {
           today={today}
           clock={hhmm(nowMin)}
           tally={`${durText(planned)} planned · ${durText(Math.max(DAY_MIN - planned, 0))} open`}
-          view={view}
           theme={theme}
           error={error}
           onPickDay={setDay}
           onShift={(delta) => setDay(shiftDay(day, delta))}
-          onView={setView}
-          onTheme={toggleTheme}
+                    onTheme={toggleTheme}
         />
 
-        {view === 'todo' ? (
+        {tab === 'today' && (
           <div className="view">
             <Agenda
               blocks={blocks}
@@ -514,7 +514,9 @@ export default function App() {
               dayClear={dayIsClear(blocks, inbox, day, today)}
             />
           </div>
-        ) : (
+        )}
+
+        {tab === 'day' && (
           <div className="view is-timeline">
             <Timeline
               day={day}
@@ -536,7 +538,26 @@ export default function App() {
             />
           </div>
         )}
+
+        {tab === 'you' && (
+          <div className="view">
+            <Profile
+              status={calendar}
+              events={calendarDay.events}
+              busy={syncing}
+              note={calendarNote}
+              onSync={runSync}
+              onToggle={toggleCalendar}
+              onConnect={connectCalendar}
+              connecting={connecting}
+              theme={theme}
+              onTheme={toggleTheme}
+            />
+          </div>
+        )}
       </main>
+
+      <TabBar tab={tab} onTab={setTab} />
 
       {selected && (
         <Editor

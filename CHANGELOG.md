@@ -1,5 +1,32 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.7.0 — 2026-09-21
+
+Connecting a calendar moved out of your day. It used to sit in the rail under the inbox, so the
+app's own plumbing — credentials, sync, theme — read as part of the plan; on a phone the rail
+stacked above the day and spent a quarter of the screen saying so.
+
+- **Three destinations at the foot of the app.** Today, Day, You: the plan, the clock, and the
+  app's own settings. The header's Plan/Timeline switch is gone, because the bar is the switch.
+  Plain text rather than glyphs, and the one you are standing in is marked with the same amber as
+  the now line — 15.02:1 against the bar where the quiet two are 5.16:1.
+- **Connecting lives in You.** The calendar panel, its Connect form, the theme and which version
+  this copy is: all questions about the app rather than about the day, so all behind a tab you
+  have to mean to open. The day's events still belong to the day, drawn on the clock in Day.
+- **The rail is a desktop tool, not a phone feature.** Above 780px it returns beside the clock,
+  because giving an unscheduled task an hour is a drag, and a drag needs somewhere to land. Below
+  it those same tasks are in Today's Anytime section, one tap from the editor, and the day gets
+  the whole screen instead of a quarter of it.
+- **A first visit opens on the plan**, and after that it opens where you left off.
+- **The destinations are tested the way a person uses them**: every one hit-tested at its own
+  centre, each tapped and its destination asserted, and the old controls asserted *gone* — a
+  stylesheet can restyle a switch into invisibility, so absence is measured in the DOM.
+
+The keyboard walk in the suite now starts from the top of the page and judges the focus ring once
+per element. Where sequential focus begins is the last thing that was clicked, and the last thing
+clicked is a destination in the tab bar, which is last in the DOM; and a date field is several
+stops whose focus sits inside Chromium's own shadow tree, where no author style reaches.
+
 ## 0.6.0 — 2026-09-21
 
 The calendar comes into the day. An appointment reads in the same ink as your own plan, and it is
