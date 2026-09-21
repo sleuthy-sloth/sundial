@@ -1,5 +1,47 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.2.1 — 2026-09-20
+
+Illustrations, and the things a link to this needs.
+
+### Added
+
+- **Artwork for three states**, drawn twice each: an empty timeline, an empty inbox, and a day
+  that is genuinely finished. They are the only raster images in the app, they sit straight on
+  the canvas with no frame or shadow, and every state keeps its own sentence — the picture is
+  what makes the state feel like a room rather than an error. Both themes are in the DOM with
+  CSS choosing, so the right one is there at the first paint; the hidden file is not even
+  fetched, because a lazy image with no layout box is never in the viewport.
+- **An all-clear that has to be earned.** The low-sun pair appears once, at the foot of the
+  plan, and only when today had plans and has none left: something still in the inbox, or an
+  empty day, does not count. The rule is a pure function (`src/art.js`) with its own tests,
+  because "done" and "empty" being different words is the whole point.
+- **A favicon**, vector, following the reader's colour scheme the way the app does — plus a
+  32px PNG for browsers that will not take an SVG.
+- **Real maskable icons**, drawn with the mark inset so Android's crop cannot take the ticks
+  (measured at 0.332 of the width, against the 0.4 the safe zone allows).
+- **A social card and a README banner**, and the `og:`/`twitter:` tags to point at the card.
+
+### Changed
+
+- The **app icon now follows the stylesheet**: `make_icons.py` reads `--bg`, `--text` and
+  `--solar` out of `styles.css` instead of repeating them, so the mark cannot drift away from
+  the ledger it belongs to. It was still the pre-redesign blue.
+- `theme-color` and the manifest follow the ledger's ground too — the browser chrome had been
+  left on the old greys.
+- The README says what the app actually does again. Three claims had survived the 0.2.0
+  redesign: the view switch at the bottom, white cards with an icon circle, and the week strip.
+
+### Notes
+
+- The supplied illustrations are drawn on their own ground, and the dark ones are about 15/255
+  lighter than this app's dark ground — put on the canvas unchanged they showed as rectangles.
+  Each file is now matched to the surface it is placed on (the page, or the rail's lighter panel
+  for the tray), and the dial's ground is keyed out rather than matched, so the hour rules run
+  underneath it. `--check`, which CI runs, fails if either drifts.
+- Link previews need `VITE_APP_URL` set in `frontend/.env` and a rebuild. GitHub's own
+  repository card is a manual upload and cannot be set from here — see the README.
+
 ## 0.2.0 — 2026-09-20
 
 The look, rebuilt around time rather than cards.

@@ -4,8 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="A visual day planner that runs on your own hardware." />
-    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f1e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1a17" media="(prefers-color-scheme: dark)" />
+
+    <!-- The mark, as vector, following the reader's colour scheme; the PNG is the fallback for
+         browsers that will not take an SVG favicon. Both are drawn by scripts/make_icons.py. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
 
     <!-- Add to Home Screen on iOS -->
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -13,6 +18,33 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="sundial" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <!-- What a link to this looks like somewhere else.
+         Set VITE_APP_URL (see .env) to your own host and these become absolute; left empty they
+         stay relative, which a browser resolves for a visitor and a crawler does not. A
+         self-hosted app has no canonical public URL to write down, so this does not invent one.
+         GitHub's own repository card is uploaded by hand — see the README. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="sundial" />
+    <meta property="og:title" content="sundial — a visual day planner on your own hardware" />
+    <meta
+      property="og:description"
+      content="The day is a list you can read at a glance and a 24-hour canvas you can drag blocks around on, over one SQLite file and a single process."
+    />
+    <meta property="og:image" content="%VITE_APP_URL%/brand/sundial-og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="An open planner drawn in thin line on parchment, with a soft amber beam of light across it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="sundial — a visual day planner on your own hardware" />
+    <meta
+      name="twitter:description"
+      content="The day is a list you can read at a glance and a 24-hour canvas you can drag blocks around on, over one SQLite file and a single process."
+    />
+    <meta name="twitter:image" content="%VITE_APP_URL%/brand/sundial-og.jpg" />
 
     <title>sundial</title>
     <script>

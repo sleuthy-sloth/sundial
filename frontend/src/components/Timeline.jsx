@@ -1,5 +1,6 @@
 import { HOUR_PX, hhmm, durText, freeGaps } from '../time'
 import Block from './Block'
+import LedgerArt from './LedgerArt'
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
@@ -71,9 +72,12 @@ export default function Timeline({
         )}
 
         {blocks.length === 0 && (
-          <p className="timeline-empty">
-            Nothing planned yet — double-click a time, or drag something over from the inbox.
-          </p>
+          <div className="state state-timeline">
+            <LedgerArt kind="timeline" />
+            <p className="timeline-empty">
+              Nothing planned yet — double-click a time, or drag something over from the inbox.
+            </p>
+          </div>
         )}
       </div>
     </div>

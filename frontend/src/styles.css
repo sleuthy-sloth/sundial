@@ -383,16 +383,98 @@ button { cursor: pointer; }
   white-space: nowrap;
 }
 
-.timeline-empty {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 340px;
-  margin: 0 auto;
-  max-width: 280px;
+/* The empty state is a picture and a sentence, both belonging to the state. The sentence does
+   the explaining; the picture is what makes the state feel like a room rather than an error. */
+.state {
   text-align: center;
+}
+
+/* Sticky, not absolute: the canvas is a 24-hour column that scrolls, and an offset inside it
+   puts the empty state off-screen the moment the ruler is scrolled anywhere else — which on a
+   phone is always. Sticking it keeps the explanation in view at any scroll position.
+   Clicks pass through, so double-clicking the canvas still adds a block behind it. */
+.state-timeline {
+  position: sticky;
+  top: 24px;
+  z-index: 1;
+  width: min(340px, calc(100% - 32px));
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.timeline-empty {
+  margin: var(--s3) 0 0;
   font-size: 0.8125rem;
   color: var(--muted);
+}
+
+/* ---------------- artwork ----------------
+
+   The only raster images in the app, and they are supporting cast: a state's own words stay
+   primary, and each picture is hidden from assistive technology rather than described twice.
+
+   Both themes live in the DOM and CSS chooses, so the correct file is showing at the first
+   paint — a dark-theme reader never sees the light one flash past. The hidden file is not
+   fetched, because a lazy image with no layout box is never in the viewport.
+
+   No shadow, no frame, no animation: they sit directly on the canvas, and reduce-motion has
+   nothing to switch off here. The ground of every file is the page's own colour, which is
+   checked in scripts/make_art.py --check so a theme change cannot leave them on a tile. */
+.art {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.art img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Scoped to the element as well as the class: `.art img` above is more specific than a bare
+   `.art-dark`, and if the hidden file is not actually hidden both of them draw, stacked. */
+.art img.art-dark {
+  display: none;
+}
+
+[data-theme='dark'] .art img.art-light {
+  display: none;
+}
+
+[data-theme='dark'] .art img.art-dark {
+  display: block;
+}
+
+/* Restrained: enough to be seen, never the screen. */
+.art-timeline {
+  max-width: 300px;
+}
+
+.art-inbox {
+  max-width: 190px;
+}
+
+.art-complete {
+  max-width: 300px;
+}
+
+.state-complete {
+  padding: var(--s4) var(--s4) 28px;
+}
+
+.state-line {
+  margin: var(--s3) 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* The tray sits under the inbox's own sentence, centred in the rail. */
+.inbox-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
 }
 
 .block {
