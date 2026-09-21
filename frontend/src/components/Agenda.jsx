@@ -62,7 +62,7 @@ export default function Agenda({
         return (
           <section key={section.key} className={`section section-${section.key}`}>
             <div className="group-head">
-              <button
+              <button type="button"
                 className="group-name"
                 onClick={() => toggleSection(section.key)}
                 aria-expanded={!shut}
@@ -72,7 +72,7 @@ export default function Agenda({
               </button>
               {span && <span className="group-meta">{span}</span>}
               <span className="count">{active.length}</span>
-              <button
+              <button type="button"
                 className="group-add"
                 onClick={() => onAddAt(section.key)}
                 title={`Add to ${section.label}`}
@@ -96,7 +96,7 @@ export default function Agenda({
                 ))}
 
                 {active.length === 0 && finished.length === 0 && (
-                  <button className="row empty" onClick={() => onAddAt(section.key)}>
+                  <button type="button" className="row empty" onClick={() => onAddAt(section.key)}>
                     {section.key === 'anytime'
                       ? 'Nothing waiting'
                       : `Nothing in the ${section.label.toLowerCase()}`}

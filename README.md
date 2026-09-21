@@ -51,6 +51,9 @@ These are features, not styling:
 - Empty states are honest and quiet.
 - 44px touch targets, and every primary action is reachable with one thumb.
 - Dark mode, larger text and reduced motion are all honoured.
+- **Keyboard focus is always visible.** One `:focus-visible` ring for the whole app, never removed:
+  the browser suite tabs through it and measures the ring at every stop, and axe-core runs over
+  both themes, so a control that loses its indicator fails the build.
 
 **No AI, deliberately.** No co-planner, no automatic prioritising, no suggestions. If you
 do want an assistant drafting your day, point one at the API — it is a `POST /api/blocks`.
@@ -61,7 +64,8 @@ do want an assistant drafting your day, point one at the API — it is a `POST /
 bash run.sh          # builds the app if it is missing, then serves everything on :6770
 ```
 
-Open <http://127.0.0.1:6770>. A fresh clone needs its dependencies first:
+Open <http://127.0.0.1:6770>. A fresh clone needs its dependencies first. (For the full list of
+checks and the rules a change has to keep, see [CONTRIBUTING.md](CONTRIBUTING.md).)
 
 ```
 python3 -m venv backend/.venv
@@ -156,15 +160,19 @@ to have worked out, and CI runs it. The vector and the raster are compared again
 the browser suite too: a browser paints the SVG and Pillow draws the PNGs, and two renderers can
 drift apart without either looking wrong on its own.
 
-**Link previews need one setting.** The app writes the card into its own `og:` and `twitter:`
-tags, but with no host set those stay relative: a visitor's browser resolves them and a crawler
-will not. Set `VITE_APP_URL` in `frontend/.env` to your own address and rebuild. There is no
-default, deliberately — a wrong address baked into a build is worse than no preview.
+**Link previews need one setting, and it belongs to the deployment rather than the repo.** The
+app writes the card into its own `og:` and `twitter:` tags; with no host set those stay relative,
+which a visitor's browser resolves and a crawler will not. Put
+`VITE_APP_URL=https://your-host` in `frontend/.env.local` and rebuild — that file is gitignored,
+and the committed `.env` leaves the value empty on purpose so nobody's build inherits somebody
+else's address. One honest caveat: a host that is only reachable on a private network can be named
+correctly and still not preview, because the crawlers that fetch these images are off-network.
 
-**GitHub's repository card is a manual step.** Nothing in this repo can set it: the social
-preview is uploaded by hand, once, at Settings → Social preview → *Upload an image*, and the file
-to upload is `frontend/public/brand/sundial-og.jpg`. Changing it later means uploading again,
-not committing.
+**GitHub's repository card is a manual upload, and there is no API to avoid it.** That is not an
+assumption: the Repository type exposes no social-preview field, there is no mutation for one, and
+the REST API has no endpoint. It is Settings → Social preview → *Upload an image*, once, and the
+file is `frontend/public/brand/sundial-og.jpg`. Changing it later means uploading again, not
+committing.
 
 ```
 backend/app.py              the API and the block rules (FastAPI)
@@ -180,8 +188,9 @@ frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
                             LedgerArt
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   141 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   155 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
+frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
@@ -232,7 +241,7 @@ the new schema stays, and the old code no longer knows how to read it.
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
 cd frontend && npm test                                # 25 unit tests, node --test
-cd frontend && npm run check:ui                        # 141 browser checks
+cd frontend && npm run check:ui                        # 155 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 

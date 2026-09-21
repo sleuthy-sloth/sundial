@@ -174,7 +174,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="sundial",
-    version="0.2.2",
+    version="0.2.3",
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",

@@ -161,6 +161,47 @@ def key_ground(img: Image.Image, ground: tuple[int, int, int], noise: int = 22, 
     return out
 
 
+# What each derivative was made from, by content hash and size. These are the files as they
+# arrived — see art/source/README.md: seven of the eight were last written by Picasa, so they are
+# re-encoded copies rather than the artist's masters. If a better original turns up, replace the
+# file, run this script without --check, and paste the new hash here: the check failing first is
+# deliberate, so the recorded provenance always describes the bytes actually in the tree.
+SOURCES = {
+    "day-complete-dark.jpg": ("cd947079164ec4e5724cd7b5c6be7a7707838cb285a967d97bec37369a0a4647", 1264, 848),
+    "day-complete-light.jpg": ("affeb1197f09a38c8694fdae559d7473e5d7e46700e6f1f5d4491d30a44db318", 1264, 848),
+    "inbox-tray-dark.jpg": ("7b79964f702d8d860af5f26a2c319b7533235a04e85a40e5161818e6faf5208b", 1264, 848),
+    "inbox-tray-light.jpg": ("07bf314508ffda17c3de4c056d85989da41d21a482d5a92a294a76a14df2f8ce", 1264, 848),
+    "planner-og-source.jpg": ("0adc7ea2a64697267e76230a51ab388f80765db9c9dc36dfe74e41a66be6baf1", 1424, 752),
+    "ruler-banner-source.jpg": ("fd004b550e3df7e4d3b8236c78e8c1f2aa17a2ffe653f72e1e39317ccc2b60fe", 2048, 246),
+    "sundial-dark.jpg": ("60b846e0416f9c5f342a61e8ad3b4be980f954eebdca5821ee03bece523d2c04", 1264, 848),
+    "sundial-light.jpg": ("ac9b2d7576c05eccb1de23cb6a1336a8a5b0acc8150f62d1c81d24515f6c5c18", 1264, 848),
+}
+
+
+def sources_ok(problems: list[str]) -> None:
+    """The sources have to be the bytes the derivatives were made from — otherwise the committed
+    derivatives and the committed sources describe different pictures and nobody can tell."""
+    import hashlib
+
+    for name, (want_hash, want_w, want_h) in SOURCES.items():
+        path = SOURCE / name
+        if not path.exists():
+            problems.append(f"art/source/{name} is missing")
+            continue
+        got = hashlib.sha256(path.read_bytes()).hexdigest()
+        with Image.open(path) as im:
+            size = im.size
+        if got != want_hash or size != (want_w, want_h):
+            problems.append(
+                f"art/source/{name} is not the file the derivatives were made from "
+                f"({'same hash' if got == want_hash else 'different bytes'}, {size[0]}x{size[1]} vs "
+                f"{want_w}x{want_h}) — to replace it deliberately, run this script without --check "
+                f"and record the new hash in SOURCES"
+            )
+    if not problems:
+        print(f"  {len(SOURCES)} sources are the recorded bytes")
+
+
 def open_source(name: str) -> Image.Image:
     path = SOURCE / f"{name}.jpg"
     if not path.exists():
@@ -214,6 +255,9 @@ def build(check: bool) -> int:
     BRAND.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
     rows: list[tuple[str, str, str, str, str]] = []
+
+    if check:
+        sources_ok(problems)
 
     for target, source in PAIRS.items():
         light = open_source(f"{source}-light")

@@ -46,6 +46,12 @@ const until = async (fn, timeout = 6000, step = 50) => {
   }
 }
 
+/** The text of an element that might not be there. A missing state should fail its own check,
+ *  not throw and take every check after it out of the run — which is exactly what an unguarded
+ *  innerText() on an absent element did. */
+const textOf = async (sel) =>
+  (await page.locator(sel).count()) > 0 ? (await page.locator(sel).first().innerText()) : ''
+
 const req = async (path, init) => {
   const res = await fetch(`${BASE}/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -147,10 +153,29 @@ check('the content is taller than the window it scrolls in', await page.evaluate
   const s = document.querySelector('.scroller')
   return s.scrollHeight > s.clientHeight + 100
 }))
-check('and opening the day leaves it at the hour you are in, not midnight', await page.evaluate(() => {
-  const s = document.querySelector('.scroller')
-  return s.scrollTop > 0
-}))
+// "Opens at the hour you are in, not midnight" used to be asserted as `scrollTop > 0`, which is
+// false for the first eighty minutes of every day: the app scrolls to half an hour ago minus
+// 60px, so just after midnight the correct position IS the top. The check passed all evening and
+// started failing when the clock crossed midnight — with nothing wrong in the app. Compute the
+// position the app's own rule implies, in the browser's clock, and assert that: stronger than a
+// sign test, and true at every hour.
+{
+  // HOUR_PX is a Node constant: page.evaluate runs in the browser, so it has to be handed in
+  const want = await page.evaluate((hourPx) => {
+    const now = new Date()
+    const focusMin = now.getHours() * 60 + now.getMinutes() - 30
+    return Math.max(0, (focusMin / 60) * hourPx - 60)
+  }, HOUR_PX)
+  const at = await until(async () => {
+    const back = await page.evaluate(() => document.querySelector('.scroller')?.scrollTop ?? 0)
+    return Math.abs(back - want) <= 4 ? back : null // 4px covers a minute boundary and rounding
+  })
+  check(
+    'and opening the day lands half an hour before now, not at midnight',
+    at !== null,
+    `at ${await page.evaluate(() => Math.round(document.querySelector('.scroller')?.scrollTop ?? -1))}px, expected ${Math.round(want)}px`,
+  )
+}
 check('the now line is on today', (await page.locator('.now').count()) === 1)
 check(
   'the header names the day compactly',
@@ -953,10 +978,7 @@ const boxOf = async (text) => {
     const sized = await artSized('.inbox-empty .art')
     check('at the size we reserved for it', Boolean(sized), String(sized?.natural || 'never decoded'))
     check('and only one of the two files is drawn', oneImageWide(box), box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'absent')
-    check(
-      'the sentence is still there to explain it',
-      ((await page.locator('.inbox-empty').innerText()) || '').includes('Nothing waiting'),
-    )
+    check('the sentence is still there to explain it', (await textOf('.inbox-empty')).includes('Nothing waiting'))
     check(
       'and the picture is decoration, not content',
       Boolean(box) && box.ariaHidden === 'true' && box.alt === '',
@@ -992,10 +1014,7 @@ const boxOf = async (text) => {
     const lightSized = await artSized('.state-timeline .art')
     check('at the size we reserved for it', Boolean(lightSized), String(lightSized?.natural || 'never decoded'))
     check('and only one of the two files is drawn', oneImageWide(light), light ? `${Math.round(light.width)}x${Math.round(light.height)}` : 'absent')
-    check(
-      'with the instruction still doing the explaining',
-      ((await page.locator('.timeline-empty').innerText()) || '').includes('Nothing planned yet'),
-    )
+    check('with the instruction still doing the explaining', (await textOf('.timeline-empty')).includes('Nothing planned yet'))
     check(
       'and it is kept off the accessibility tree',
       Boolean(light) && light.ariaHidden === 'true' && light.alt === '',
@@ -1235,6 +1254,415 @@ const boxOf = async (text) => {
     )
     } finally {
       await slow.close() // its own context, so the rest of the run keeps its cache
+    }
+  }
+}
+
+
+// ---- keyboard, focus and the accessibility tree ---------------------------------------------
+// Three separate things, because "accessible" is not one check: axe over the two main views, a
+// real tab-through that measures the ring on every stop, and a look at the built stylesheet for
+// anything that removes an outline. The tab-through is the one that would have caught inputs
+// whose only focus cue was a border changing colour.
+{
+  const themeNow = () => page.evaluate(() => document.documentElement.dataset.theme)
+  const wantTheme = async (want) => {
+    if ((await themeNow()) !== want) {
+      await page.locator('.theme-toggle').click()
+      await page.waitForTimeout(200)
+    }
+  }
+
+  const AXE = require.resolve('axe-core/axe.min.js')
+  await page.addScriptTag({ path: AXE })
+  const audit = async (label, tags) => {
+    const found = await page.evaluate(
+      async (tags) => {
+        const res = await window.axe.run(document, {
+          runOnly: { type: 'tag', values: tags },
+        })
+        return res.violations.map((v) => ({
+          id: v.id,
+          impact: v.impact,
+          where: v.nodes.map((n) => n.target.join(' ')).slice(0, 3),
+        }))
+      },
+      tags,
+    )
+    check(
+      `${label}: no automated accessibility violations`,
+      found.length === 0,
+      found.length
+        ? found.map((v) => `${v.id} [${v.impact}] ${v.where.join(', ')}`).join(' | ').slice(0, 320)
+        : 'clean',
+    )
+  }
+  const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
+
+  // No interactive control may contain another. axe's nested-interactive rule does NOT fire on
+  // the pattern this app had (a div[role=button] holding a real checkbox button) — verified
+  // against the released build with a row on screen, where axe reported nothing and this walk
+  // reported exactly the row. So it is its own check: any widget with a focusable descendant.
+  const nested = await page.evaluate(() => {
+    const WIDGET = new Set(['button', 'checkbox', 'link', 'menuitem', 'option', 'radio', 'switch', 'tab', 'textbox'])
+    const NATIVE = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'])
+    const focusable = (el) => NATIVE.has(el.tagName) || (el.tabIndex != null && el.tabIndex >= 0)
+    const out = []
+    for (const el of document.querySelectorAll('*')) {
+      const role = (el.getAttribute('role') || '').toLowerCase()
+      if (!(WIDGET.has(role) || NATIVE.has(el.tagName))) continue
+      for (const child of el.querySelectorAll('*')) {
+        if (focusable(child)) {
+          out.push(
+            `${el.tagName.toLowerCase()}${role ? `[role=${role}]` : ''} contains ${child.tagName.toLowerCase()}`,
+          )
+          break
+        }
+      }
+    }
+    return [...new Set(out)]
+  })
+  check(
+    'no interactive control contains another',
+    nested.length === 0,
+    nested.length ? nested.slice(0, 3).join(' | ') : 'none on the plan view',
+  )
+
+  // the plan, where a whole day of rows is on screen
+  await wantTheme('light')
+  await page.locator('.view-switch button').nth(0).click()
+  await page.waitForTimeout(400)
+  await audit('the plan, in light', TAGS)
+
+  // the timeline, dark: a scroll region, blocks, and the amber now chip
+  await page.locator('.view-switch button').nth(1).click()
+  await wantTheme('dark')
+  await page.waitForTimeout(500)
+  await audit('the timeline, in dark', TAGS)
+  await wantTheme('light')
+  await page.locator('.view-switch button').nth(0).click()
+  await page.waitForTimeout(400)
+
+  // What does the keyboard actually see? Tab through and measure the ring at every stop: a
+  // visible indicator is one that is at least 2px wide and contrasts with what is behind it.
+  const focusInfo = () =>
+    page.evaluate(() => {
+      const el = document.activeElement
+      if (!el || el === document.body) return null
+      const nums = (c) => (c.match(/[\d.]+/g) || []).map(Number)
+      const lum = ([r, g, b]) => {
+        const f = (v) => {
+          v /= 255
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+      }
+      const ratio = (a, b) => {
+        const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
+        return (hi + 0.05) / (lo + 0.05)
+      }
+      // the ground the ring is drawn on: walk up until a background is actually opaque
+      let ground = null
+      for (let n = el; n; n = n.parentElement) {
+        const c = nums(getComputedStyle(n).backgroundColor)
+        if (c.length >= 3 && (c[3] === undefined || c[3] > 0.95)) {
+          ground = c.slice(0, 3)
+          break
+        }
+      }
+      const cs = getComputedStyle(el)
+      const cls = String(el.className || '').split(' ').filter(Boolean)[0]
+      return {
+        what: `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}`,
+        width: parseFloat(cs.outlineWidth) || 0,
+        style: cs.outlineStyle,
+        contrast:
+          ground && cs.outlineStyle !== 'none'
+            ? Number(ratio(nums(cs.outlineColor).slice(0, 3), ground).toFixed(2))
+            : null,
+      }
+    })
+
+  const stops = []
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab')
+    const info = await focusInfo()
+    if (!info) break
+    if (stops.length > 2 && info.what === stops[0].what) break // wrapped round
+    stops.push(info)
+  }
+  check('the keyboard reaches the app controls', stops.length >= 8, `${stops.length} stops`)
+
+  const ringless = stops.filter((s) => s.width < 2 || s.style === 'none' || (s.contrast ?? 99) < 3)
+  check(
+    'and every stop shows a visible focus ring',
+    ringless.length === 0,
+    ringless.length
+      ? ringless.map((s) => `${s.what}: ${s.width}px ${s.contrast}:1`).join(' | ')
+      : `${stops.length} stops, all ringed (min contrast ${Math.min(...stops.map((s) => s.contrast ?? 99)).toFixed(1)}:1)`,
+  )
+
+  // and nothing in the built stylesheet may remove an outline: that is how the two capture
+  // fields lost theirs, one `outline: none` at a time
+  const css = await page.evaluate(async () => {
+    const html = await (await fetch('/')).text()
+    const href = (html.match(/\/assets\/index-[A-Za-z0-9._-]+\.css/) || [])[0]
+    return href ? await (await fetch(href)).text() : ''
+  })
+  const killer = /outline\s*:\s*(none|0)\b|outline-width\s*:\s*0\b/.exec(css)
+  check(
+    'nothing in the stylesheet removes a focus outline',
+    css.length > 0 && !killer,
+    killer ? `found "${killer[0]}" in the built CSS` : 'no outline: none in the built CSS',
+  )
+}
+
+
+const wantThemeLight = async () => {
+  if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') {
+    await page.locator('.theme-toggle').click()
+    await page.waitForTimeout(200)
+  }
+}
+
+// ---- visual regression snapshots ------------------------------------------------------------
+// Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop
+// in both themes, the three empty states, and the icon under its launcher masks. Baselines are
+// committed; the comparison happens in the browser (no image library in Node), and a baseline
+// captured on a different platform or Chromium build is reported rather than silently passed,
+// because font rasterisation genuinely differs between them.
+{
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const DIR = path.join(import.meta.dirname, 'baselines')
+  const META = path.join(DIR, 'meta.json')
+  const HERE = `${process.platform}-${process.arch}/chromium-${browser.version()}`
+  const updating = process.env.UPDATE_SNAPSHOTS === '1'
+  // Set from measurement rather than taste: across clean runs the noisiest shot differed by
+  // 0.27% of pixels, and the first gate written here (2.5%) let a deliberately corrupted
+  // baseline through at 1.14%. These leave ~3x headroom over observed noise and still catch a
+  // change to a few rows.
+  const MAX_MEAN = 0.5
+  const MAX_FAR_PCT = 0.8
+
+  const shoot = async (name, prepare) => {
+    await prepare()
+    await page.waitForTimeout(500) // let fonts and the artwork settle
+    const buffer = await page.screenshot({ fullPage: false })
+    const file = path.join(DIR, `${name}.png`)
+
+    if (updating || !fs.existsSync(file)) {
+      fs.mkdirSync(DIR, { recursive: true })
+      fs.writeFileSync(file, buffer)
+      const meta = fs.existsSync(META) ? JSON.parse(fs.readFileSync(META, 'utf8')) : {}
+      meta[name] = HERE
+      fs.writeFileSync(META, `${JSON.stringify(meta, null, 2)}\n`)
+      check(`${name}: baseline ${updating ? 'updated' : 'captured'}`, true, `${Math.round(buffer.length / 1024)}KB`)
+      return
+    }
+
+    const captured = fs.existsSync(META) ? (JSON.parse(fs.readFileSync(META, 'utf8'))[name] || 'unknown') : 'unknown'
+    if (captured !== HERE) {
+      console.log(
+        `  note  ${name}: not compared — baseline captured on ${captured}, this run is ${HERE}.` +
+          ` Re-run with UPDATE_SNAPSHOTS=1 to re-capture here.`,
+      )
+      return
+    }
+
+    const diff = await page.evaluate(
+      async ([was, now]) => {
+        const load = async (b64) => {
+          const img = new Image()
+          img.src = `data:image/png;base64,${b64}`
+          await img.decode()
+          const c = new OffscreenCanvas(img.width, img.height)
+          const ctx = c.getContext('2d')
+          ctx.drawImage(img, 0, 0)
+          return ctx.getImageData(0, 0, img.width, img.height)
+        }
+        const a = await load(was)
+        const b = await load(now)
+        if (a.width !== b.width || a.height !== b.height) {
+          return { resized: `${a.width}x${a.height} -> ${b.width}x${b.height}` }
+        }
+        let sum = 0
+        let far = 0
+        for (let i = 0; i < a.data.length; i += 4) {
+          const d =
+            (Math.abs(a.data[i] - b.data[i]) +
+              Math.abs(a.data[i + 1] - b.data[i + 1]) +
+              Math.abs(a.data[i + 2] - b.data[i + 2])) /
+            3
+          sum += d
+          if (d > 40) far++
+        }
+        const n = a.data.length / 4
+        return { mean: sum / n, farPct: (far / n) * 100 }
+      },
+      [fs.readFileSync(file).toString('base64'), buffer.toString('base64')],
+    )
+
+    const ok = !diff.resized && diff.mean <= MAX_MEAN && diff.farPct <= MAX_FAR_PCT
+    if (!ok) fs.writeFileSync(path.join(DIR, `${name}.current.png`), buffer) // inspectable
+    check(
+      `${name}: unchanged against its baseline`,
+      ok,
+      diff.resized
+        ? diff.resized
+        : `mean ${diff.mean.toFixed(2)}/255, ${diff.farPct.toFixed(2)}% differing` +
+          (ok ? '' : ` — current shot written to ${name}.current.png`),
+    )
+  }
+
+  // a fixed little day, so the pictures are of the same thing every run
+  const seeded = []
+  for (const [title, start, mins, color, icon] of [
+    ['Standup', 9 * 60, 30, 'slate', ''],
+    ['Draft the review', 10 * 60 + 30, 90, 'amber', '📝'],
+    ['Walk', 19 * 60 + 30, 45, 'emerald', '🌤'],
+  ]) {
+    seeded.push(await spawn({ title, day: today, start_min: start, duration_min: mins, color, icon }))
+  }
+  const held = await spawn({ title: 'Something unscheduled', duration_min: 30 })
+  // Blocks written straight to the API are not in the app's state until it looks again — it
+  // fetches on mount and on a day change. Without this the first shots came out of an empty
+  // plan, and a 3px change to every row compared as identical.
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForTimeout(600)
+
+  const setSize = (w, h) => page.setViewportSize({ width: w, height: h })
+  const setView = async (i) => {
+    await page.locator('.view-switch button').nth(i).click()
+    await page.waitForTimeout(400)
+  }
+  const setDay = async (d) => {
+    await page.fill('.day-head input[type="date"]', d)
+    await page.waitForTimeout(600)
+  }
+
+  try {
+    await wantThemeLight()
+    await setDay(today)
+    await setView(0)
+    await shoot('desktop-plan-light', async () => {
+      await setSize(1280, 900)
+      await setDay(today)
+      await setView(0)
+    })
+    await shoot('desktop-plan-dark', async () => {
+      await setSize(1280, 900)
+      await setDay(today)
+      await setView(0)
+      await page.locator('.theme-toggle').click()
+    })
+    await page.locator('.theme-toggle').click() // back to light
+    await shoot('desktop-timeline-light', async () => {
+      await setSize(1280, 900)
+      await setDay(today)
+      await setView(1)
+    })
+    await shoot('phone-plan-light', async () => {
+      await setSize(390, 844)
+      await setDay(today)
+      await setView(0)
+    })
+    await shoot('phone-empty-timeline', async () => {
+      await setSize(390, 844)
+      await setDay(EMPTY_DAY)
+      await setView(1)
+      await until(async () => (await page.locator('.state-timeline .art').count()) === 1)
+    })
+    await shoot('phone-empty-inbox', async () => {
+      await setSize(390, 844)
+      await setDay(EMPTY_DAY)
+      await setView(1)
+    })
+    await shoot('phone-day-complete', async () => {
+      // a genuinely finished day: everything on it done, nothing left in the inbox, and it has
+      // to be TODAY — "finished" is a fact about today, not about a date
+      await req(`/blocks/${held.id}`, { method: 'DELETE' }).catch(() => {})
+      for (const b of seeded) {
+        await req(`/blocks/${b.id}`, { method: 'PATCH', body: JSON.stringify({ done: true }) })
+      }
+      await setSize(390, 844)
+      await page.reload({ waitUntil: 'networkidle' })
+      await setDay(today)
+      await setView(0)
+      await until(async () => (await page.locator('.state-complete .art').count()) === 1)
+      await page.locator('.state-complete').scrollIntoViewIfNeeded()
+    })
+  } finally {
+    await setSize(1280, 900)
+    await setDay(today)
+    for (const b of [...seeded, held]) {
+      await req(`/blocks/${b.id}`, { method: 'DELETE' }).catch(() => {})
+    }
+  }
+
+  // the icon under its launcher masks, which is platform-independent: the files are committed
+  // and the masks are CSS, so there is no font rasterisation to disagree about
+  {
+    const sheet = await browser.newContext({ viewport: { width: 720, height: 260 }, deviceScaleFactor: 1 })
+    const icons = await sheet.newPage()
+    await icons.setContent(`
+      <body style="margin:0;display:flex;gap:18px;align-items:center;padding:16px;background:#1b1a17">
+        ${['', 'circle(50% at 50% 50%)', 'inset(0 round 34%)', 'inset(0 round 22%)']
+          .map(
+            (clip) =>
+              `<img src="${BASE}/icon-maskable-512.png" width="128" height="128"
+                 ${clip ? `style="clip-path:${clip}"` : ''}>`,
+          )
+          .join('')}
+      </body>`)
+    await icons.waitForTimeout(400)
+    const buffer = await icons.screenshot()
+    await sheet.close()
+
+    const file = path.join(DIR, 'icon-masks.png')
+    if (updating || !fs.existsSync(file)) {
+      fs.mkdirSync(DIR, { recursive: true })
+      fs.writeFileSync(file, buffer)
+      const meta = fs.existsSync(META) ? JSON.parse(fs.readFileSync(META, 'utf8')) : {}
+      meta['icon-masks'] = HERE
+      fs.writeFileSync(META, `${JSON.stringify(meta, null, 2)}\n`)
+      check(`icon-masks: baseline ${updating ? 'updated' : 'captured'}`, true, `${Math.round(buffer.length / 1024)}KB`)
+    } else {
+      const diff = await page.evaluate(
+        async ([was, now]) => {
+          const load = async (b64) => {
+            const img = new Image()
+            img.src = `data:image/png;base64,${b64}`
+            await img.decode()
+            const c = new OffscreenCanvas(img.width, img.height)
+            c.getContext('2d').drawImage(img, 0, 0)
+            return c.getContext('2d').getImageData(0, 0, img.width, img.height)
+          }
+          const a = await load(was)
+          const b = await load(now)
+          let sum = 0
+          let far = 0
+          for (let i = 0; i < a.data.length; i += 4) {
+            const d =
+              (Math.abs(a.data[i] - b.data[i]) +
+                Math.abs(a.data[i + 1] - b.data[i + 1]) +
+                Math.abs(a.data[i + 2] - b.data[i + 2])) /
+              3
+            sum += d
+            if (d > 40) far++
+          }
+          const n = a.data.length / 4
+          return { mean: sum / n, farPct: (far / n) * 100 }
+        },
+        [fs.readFileSync(file).toString('base64'), buffer.toString('base64')],
+      )
+      const ok = diff.mean <= MAX_MEAN && diff.farPct <= MAX_FAR_PCT
+      if (!ok) fs.writeFileSync(path.join(DIR, 'icon-masks.current.png'), buffer)
+      check(
+        'icon-masks: unchanged against its baseline',
+        ok,
+        `mean ${diff.mean.toFixed(2)}/255, ${diff.farPct.toFixed(2)}% differing`,
+      )
     }
   }
 }
