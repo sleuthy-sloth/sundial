@@ -50,6 +50,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ provider, fields }),
     }),
+  // Notifications. The subscription itself is made by the browser against the key the
+  // server hands out; these three carry only what the server cannot work out on its own.
+  pushKey: (signal) => req('/api/push/key', { signal }),
+  subscribePush: (subscription) =>
+    req('/api/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) }),
+  unsubscribePush: (endpoint) =>
+    req('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
+  testPush: () => req('/api/push/test', { method: 'POST' }),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),

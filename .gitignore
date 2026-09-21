@@ -11,6 +11,8 @@ backend/*.db-shm
 # calendar credentials — never commit these
 icloud.env
 google.json
+# the identity the app generates for itself the first time it has something to notify
+vapid.env
 
 # a deployment's own address (VITE_APP_URL) lives here, not in the committed .env: the repo is
 # public and this box's hostname is not something to publish

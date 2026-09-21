@@ -1,6 +1,7 @@
 import { version } from '../../package.json'
 
 import CalendarPanel from './CalendarPanel'
+import Notifications from './Notifications'
 
 /**
  * The app's own settings, in a tab of their own rather than in a column beside your day.
@@ -51,6 +52,8 @@ export default function Profile({
           Switch to {theme === 'dark' ? 'light' : 'dark'}
         </button>
       </div>
+
+      <Notifications />
 
       <h2>This copy</h2>
       <div className="set-row">

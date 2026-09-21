@@ -1,5 +1,47 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.8.0 — 2026-09-21
+
+A notification is the only thing this app says without being asked, so most of the work here was
+deciding how little it should say. It announces the hour a block begins and then stops: no
+summary, no count of what you have not started, nothing about a day you already know about. The
+app already had a service worker that could receive a push. What it did not have was anything
+that could send one.
+
+- **One notification, at the hour.** The block's title and how long it runs, and nothing else —
+  because everything else this could have said would have been urgency.
+- **Off until asked, per device**, from the You tab. The panel shows the browser's answer rather
+  than the last thing clicked: a subscription can be dropped by the push service, or cleared
+  along with the site's data, and a panel that only remembered its own click would carry on
+  claiming to be on.
+- **Late is not worth saying.** A block is announced only if it started inside the last ten
+  minutes. Without that rule, opening the app on a Sunday evening fires a notification for every
+  hour since Friday, and an app that says “you should have started this on Friday” is not a
+  planner, it is an audit.
+- **Once per block per day**, kept as a row rather than a flag, so midnight has nothing to reset
+  and a restart has nothing to re-announce.
+- **A subscription the push service has forgotten is deleted, not retried.** 404 and 410 are the
+  service saying it is over. Any other failure delays that notification instead of spending it.
+- **The identity is made once**, on first use, and kept as a 0600 file beside the calendar
+  credentials. Deleting it is a supported repair rather than damage.
+- **A “Send one now” button**, because the only other way to prove the path works is to wait for
+  an hour to pass.
+- **New dependency: pywebpush.** VAPID signing and the payload encryption are the two places in
+  this feature where being clever means writing crypto, and there is no upside to that.
+
+The limit is stated on the panel rather than left to be discovered on a morning nothing arrives:
+sundial sends these itself, so it can only send while it is running. A notification about nine
+o'clock needs the app up at nine o'clock. That is the honest shape of a program that owns one
+file in your home directory.
+
+Verified the way the rest of the app is. Fifty backend tests cover the sending side and its
+restraint — announced once and not twice, silence for a block that started an hour ago, a refused
+network call that delays rather than consumes. Fifteen frontend tests cover the three parties
+that can each refuse a subscription, and five browser checks hold the panel to naming its state
+in words and to offering no control that could only fail. Both `smoke_release.py` and
+`test_app.py` replayed the third migration by deleting its version row, which stops working the
+moment a fourth migration exists; they now delete from three up, which is what they always meant.
+
 ## 0.7.0 — 2026-09-21
 
 Connecting a calendar moved out of your day. It used to sit in the rail under the inbox, so the

@@ -8,3 +8,10 @@ pydantic==2.13.5
 icalendar==7.3.0
 recurring-ical-events==3.8.2
 httpx==0.28.1              # the CalDAV transport (and what TestClient drives the app with)
+
+# Push notifications, the sending side of what sw.js already receives. pywebpush is the
+# canonical implementation of VAPID signing and the aes128gcm envelope; the alternative is
+# hand-rolling both, and this is not the place to be clever about cryptography. It is the
+# one dependency here that arrives as a compiled wheel rather than pure python, and arm64
+# wheels are published for every version it pulls in.
+pywebpush==2.5.0
