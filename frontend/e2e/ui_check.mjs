@@ -364,11 +364,22 @@ const boxOf = async (text) => {
 
 // ---- a day with nothing on it draws nothing ----
 {
-  await page.fill('.day-head input[type="date"]', EMPTY_DAY)
-  // Wait for the assertion itself, not a proxy for it. This used to wait for the empty state to
-  // appear and then read the block count one round later — two different instants, and on a slow
-  // runner the day is still settling between them. It failed in CI on a commit whose other run
-  // passed, which is what a check measuring the wrong moment looks like from the outside.
+  // Move the app to the empty day and confirm it actually moved. Filling a date and then asking
+  // what the day holds are two different questions: on a loaded runner the change event can land
+  // after the poll has already fixed on today, and the check then reports five blocks and no
+  // empty state — which is exactly what it reported from CI while passing everywhere else. A
+  // synthetic event that gets lost is a fact about the harness, not about the app, so set it
+  // again if it did not take; a failure after that is about the app.
+  const dateBox = '.day-head input[type="date"]'
+  const moved = await until(async () => {
+    if ((await page.locator(dateBox).inputValue()) !== EMPTY_DAY) await page.fill(dateBox, EMPTY_DAY)
+    return (await page.locator(dateBox).inputValue()) === EMPTY_DAY
+  })
+  check('the empty day is the day the app is actually showing', Boolean(moved),
+    `the date field reads ${await page.locator(dateBox).inputValue()}`)
+
+  // And wait for the assertion itself rather than a proxy for it: this used to wait for the empty
+  // state to appear and then read the block count one round later.
   const empty = await until(async () =>
     (await page.locator('.timeline-empty').count()) === 1 &&
     (await page.locator('.content .block').count()) === 0)
