@@ -7,3 +7,4 @@ pydantic==2.13.5
 # Calendar sync. Pure-python wheels — nothing to compile on a Raspberry Pi.
 icalendar==7.3.0
 recurring-ical-events==3.8.2
+httpx==0.28.1              # the CalDAV transport (and what TestClient drives the app with)

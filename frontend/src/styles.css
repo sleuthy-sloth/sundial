@@ -731,6 +731,94 @@ button { cursor: pointer; }
 [data-theme='dark'] .c-teal    { --fill: #0f3033; --edge: #45c9b8; }
 [data-theme='dark'] .c-indigo  { --fill: #1e2148; --edge: #8b96f5; }
 
+/* ---------------- the calendar rail ---------------- */
+
+/* Context beside the plan rather than part of it: quieter than a block, and it never
+   competes with the day for attention. The swatch reuses the app's own palette classes,
+   which is where the mapped-from-iCloud colour shows up — including its dark-theme pair,
+   so a calendar looks the same here as its rows would. */
+.cal {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line-faint);
+}
+.cal-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); }
+.cal-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.cal-sync {
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cal-sync:hover { background: var(--accent-soft); }
+.cal-sync:disabled { color: var(--muted); background: none; cursor: default; }
+.cal-when { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.cal-why,
+.cal-empty { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.cal-why code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--surface-2);
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+/* A sync that failed reads in the app's warm mark colour, never alarm red: this app has no
+   red, and a calendar that is behind is not an emergency. */
+.cal-problem { margin: 6px 0 0; font-size: 11px; color: var(--solar-mark); }
+
+.cal-cals { list-style: none; margin: var(--s2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cal-cal { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.cal-cal.is-off .cal-cname { color: var(--muted); text-decoration: line-through; }
+.cal-swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--edge, var(--line)); flex: none; }
+.cal-cname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.cal-toggle {
+  font: inherit;
+  font-size: 10px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cal-toggle[aria-pressed='false'] { color: var(--ink-2); }
+.cal-toggle:hover { background: var(--gap); }
+
+/* A rule between what the calendars are and what is on the day: without it the event rows
+   read as more calendars, which is what they looked like. */
+.cal-events {
+  list-style: none;
+  margin: var(--s3) 0 0;
+  padding: var(--s2) 0 0;
+  border-top: 1px solid var(--line-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cal-event { display: flex; gap: var(--s2); align-items: baseline; font-size: 12px; }
+/* right-aligned in a fixed column: "all day" is wider than "09:00", and left-aligning both
+   made the titles jitter column to column */
+.cal-time {
+  flex: none;
+  min-width: 3.4rem;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cal-swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--edge, var(--line)); flex: none; }
+.cal-what { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------------- phone ---------------- */
 
 @media (max-width: 780px) {

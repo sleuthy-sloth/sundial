@@ -51,6 +51,9 @@ These are features, not styling:
 - Empty states are honest and quiet.
 - 44px touch targets, and every primary action is reachable with one thumb.
 - Dark mode, larger text and reduced motion are all honoured.
+- **The calendar is read-only.** It comes in; nothing goes out. The worst a bug in sync can
+  do is show you something wrong, and what it may delete is bounded by two rules — see
+  [docs/calendar-sync.md](docs/calendar-sync.md).
 - **Keyboard focus is always visible.** One `:focus-visible` ring for the whole app, never removed:
   the browser suite tabs through it and measures the ring at every stop, and axe-core runs over
   both themes, so a control that loses its indicator fails the build.
@@ -176,10 +179,14 @@ committing.
 
 ```
 backend/app.py              the API and the block rules (FastAPI)
-backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
+backend/store.py            the database handle, so two modules can open one
+backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules (pure)
+backend/caldav.py           the transport: CalDAV in, event rows out. No database
+backend/calendar_service.py the sync: credentials, transport, rules, database, sync_log
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
-backend/test_*.py           82 tests
+backend/test_*.py           139 tests
+scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
 scripts/make_icons.py       the app icon and favicon: measured geometry, two layouts
@@ -188,10 +195,12 @@ frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
                             LedgerArt
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   155 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   160 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
+frontend/src/calendar.js    what the calendar panel says, in words (pure)
 frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
+frontend/src/calendar.test.js  unit tests for the panel's wording (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 scripts/backup.py           copy the database safely, and put a copy back
@@ -208,6 +217,39 @@ calendar holds things that are not plans: an all-day event is a date rather than
 instant, and a multi-day event cannot fit an invariant that says a block stays inside one
 day. Keeping them apart means `blocks` keeps meaning "the day I made", and sync only has
 to move rows between two shapes it owns.
+
+## Connecting a calendar
+
+Calendar sync is **read-only**. Your calendar comes in; nothing goes back out, so the worst a
+bug in it can do is show you something wrong. The plan stays in `blocks`; this is context
+beside it.
+
+iCloud first, because it needs nothing but an app-specific password:
+
+1. Make one at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security →
+   App-Specific Passwords. Your normal Apple ID password will not work, and the app says so
+   in those words rather than failing cryptically.
+2. Create `icloud.env` next to this README. It is gitignored, and read fresh at every sync,
+   so pasting a password does not need a service restart:
+
+       ICLOUD_USERNAME=you@example.com
+       ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+       ICLOUD_CALDAV_URL=https://caldav.icloud.com/    # optional — any CalDAV server
+
+3. Run `python scripts/check_calendar.py`. It connects, lists the calendars it found, counts
+   what is in the window, and prints no credentials — not the password, not the username.
+   Add `--sync` to store them, or press **Sync** in the app's calendar view.
+
+What it pulls is a window: seven days back, sixty forward, recomputed at every sync. Anything
+outside it is left alone, including events you already hold. Nothing needs a timer — opening
+the calendar view asks the server to sync if the last one is over fifteen minutes old, and the
+server decides, so switching views never hammers iCloud. `scripts/check_calendar.py --sync` is
+happy under a systemd timer if you would rather it happened while nobody is looking.
+
+Google is not here yet, and cannot be done this way: password-based CalDAV was switched off in
+2024, so it needs an OAuth client and a consent flow. The transport boundary is what keeps
+that from being a rewrite. `docs/calendar-sync.md` has the reasoning, the protocol as it is
+actually spoken, and the two rules that stop a bad sync deleting anything.
 
 ## Backup and restore
 
@@ -241,7 +283,7 @@ the new schema stays, and the old code no longer knows how to read it.
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
 cd frontend && npm test                                # 25 unit tests, node --test
-cd frontend && npm run check:ui                        # 155 browser checks
+cd frontend && npm run check:ui                        # 160 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -295,17 +337,20 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.1.2. The last two were about trust rather than features: it keeps what you type, the day
-view describes the day accurately, and an upgrade now reaches the phone on its own. The
-honest gaps:
+v0.3.0. Calendar sync arrived — read-only, iCloud first — on top of the 0.2.x daylight
+ledger, which was about trust rather than features: it keeps what you type, the day view
+describes the day accurately, and an upgrade reaches the phone on its own. The honest gaps:
 
-- **Calendar sync is half built.** Two providers, one model: the schema, the iCalendar
-  conversion and the conflict rules are written and tested; the transports are not. iCloud
-  will be CalDAV with an app-specific password. Google cannot be, because password-based
-  CalDAV was switched off in 2024, so it needs the REST API behind OAuth.
+- **Only iCloud, and only inwards.** Google needs OAuth, as above. Pushing a block out is
+  written and tested (`block_to_ics`) and deliberately not wired up: nothing here writes to
+  your calendar yet.
+- **Events are not on the timeline.** They show in the rail, beside the plan. Putting them
+  into the day is the next slice, and it is design work before it is plumbing — they need a
+  visual language that says "this is not yours to move" without shouting.
 - No repeating tasks or routines yet.
 - Notifications: the service worker is in place and listening, nothing sends yet.
-- The timeline opens at the hour you are in, which it never actually did: the column was
-  taller than its container, so it never scrolled and the jump-to-now was a no-op.
+- Incremental sync (RFC 6578) is not implemented: a ctag decides whether to refetch at all,
+  and a refetch takes the whole window. Windows are small enough that this is honest, and
+  the failure mode of a hand-rolled sync-token is a silently missing event.
 
 MIT licensed — see [LICENSE](LICENSE).

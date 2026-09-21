@@ -11,48 +11,27 @@ from __future__ import annotations
 import os
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+import calendar_service
+import calendar_sync
+from caldav import CalDavError, NotConfigured
 from spa import SpaStaticFiles
+from store import DB_PATH, db  # noqa: F401  (DB_PATH is re-exported: tests and backup use it)
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = Path(os.environ.get("SUNDIAL_DB", ROOT / "sundial.db"))
 MIGRATIONS = ROOT / "migrations"
 STATIC = ROOT / "static"
 
 PALETTE = ["slate", "sky", "violet", "amber", "emerald", "rose", "teal", "indigo"]
 DAY_MIN = 1440
-
-
-@contextmanager
-def db() -> Iterator[sqlite3.Connection]:
-    """One connection per use: commit it, roll it back, and close it either way.
-
-    Two things this settles. A connection's own `with` block commits or rolls back but
-    does not close it, so the handle — and whatever reader it held on the WAL — lived
-    until the garbage collector happened to run. And foreign keys are off by default in
-    SQLite, per connection, so the `ON DELETE CASCADE` in 002 was decorative: deleting a
-    calendar left its events behind.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 def init_db() -> None:
@@ -174,7 +153,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="sundial",
-    version="0.2.3",
+    version="0.3.0",
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
@@ -318,6 +297,75 @@ def patch_block(block_id: str, body: BlockPatch) -> dict:
     with db() as conn:
         conn.execute(f"UPDATE blocks SET {sets} WHERE id = ?", (*fields.values(), block_id))
     return _get_block(block_id)
+
+
+# ----------------------------------------------------------------------- calendar
+
+
+class SyncIn(BaseModel):
+    if_stale_seconds: int = Field(default=0, ge=0, le=86400)
+
+
+class CalendarPatch(BaseModel):
+    ref: str = Field(min_length=1, max_length=500)
+    enabled: bool
+
+
+@app.get("/api/calendars")
+def get_calendars() -> dict:
+    """What is connected, and what is not — as a normal answer either way.
+
+    An unconfigured calendar is not an error: it is the state a fresh install is in, and
+    the interface should be able to say what to do about it instead of showing a failure.
+    """
+    credentials, why = calendar_service.configuration()
+    return {
+        "configured": credentials is not None,
+        "why": why,
+        "last_sync": calendar_service.last_sync(),
+        "calendars": calendar_service.calendars(),
+    }
+
+
+@app.post("/api/calendars/sync")
+def sync_calendars(body: Optional[SyncIn] = None) -> dict:
+    try:
+        return calendar_service.sync(if_stale_seconds=(body or SyncIn()).if_stale_seconds)
+    except NotConfigured as exc:
+        raise HTTPException(400, str(exc)) from None
+    except CalDavError as exc:
+        # The sync could not start at all — bad credentials, no route, a server that
+        # answered nonsense. A single calendar failing inside a working sync is reported
+        # in the body instead, because the rest of the sync did happen.
+        raise HTTPException(502, str(exc)) from None
+
+
+@app.patch("/api/calendars")
+def patch_calendar(body: CalendarPatch) -> dict:
+    """Switch a calendar off, or back on. A local decision: it survives the next sync."""
+    with db() as conn:
+        changed = conn.execute(
+            "UPDATE calendars SET enabled = ? WHERE ref = ?", (1 if body.enabled else 0, body.ref)
+        ).rowcount
+    if not changed:
+        raise HTTPException(404, "no such calendar")
+    return {"ref": body.ref, "enabled": body.enabled}
+
+
+@app.get("/api/events")
+def get_events(day: Optional[str] = None) -> dict:
+    """The calendar's own events for one day, series expanded.
+
+    A day rather than a range: this app's unit is the day, and the day is a wall-clock
+    thing, so a caller does not get to send instants that disagree with it.
+    """
+    day = day or today()
+    _validate_day(day)
+    zone = calendar_sync.server_tz()
+    start = datetime.fromisoformat(f"{day}T00:00:00").replace(tzinfo=zone)
+    end = start + timedelta(days=1)
+    events = calendar_service.events_between(start, end)
+    return {"day": day, "count": len(events), "events": events}
 
 
 @app.delete("/api/blocks/{block_id}", status_code=204)

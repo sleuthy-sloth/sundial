@@ -32,6 +32,17 @@ export const api = {
   day: (day, signal) => req(`/api/day?day=${encodeURIComponent(day)}`, { signal }),
   week: (start, days = 7, signal) =>
     req(`/api/week?start=${encodeURIComponent(start)}&days=${days}`, { signal }),
+  // The calendar is context for the plan, not the plan: these are read alongside the day
+  // and a failure in them must never take the day down with it.
+  calendars: (signal) => req('/api/calendars', { signal }),
+  events: (day, signal) => req(`/api/events?day=${encodeURIComponent(day)}`, { signal }),
+  syncCalendars: (ifStaleSeconds = 0) =>
+    req('/api/calendars/sync', {
+      method: 'POST',
+      body: JSON.stringify({ if_stale_seconds: ifStaleSeconds }),
+    }),
+  setCalendar: (ref, enabled) =>
+    req('/api/calendars', { method: 'PATCH', body: JSON.stringify({ ref, enabled }) }),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),

@@ -288,7 +288,17 @@ const boxOf = async (text) => {
   })
   check('found an empty stretch of timeline to click', spot !== null)
   if (spot) {
-    const expected = snapMin((spot.offset / HOUR_PX) * 60)
+    // Measure the app's own scale rather than assuming the constant: a deployment can serve
+    // a different one (text size, zoom), and at an exact half-step boundary that difference
+    // decides which way the snap goes. This check has failed by one snap step for that
+    // reason before.
+    const pxPerHour = await page.evaluate(
+      () =>
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--hour-h'),
+        ) || 72,
+    )
+    const expected = snapMin((spot.offset / pxPerHour) * 60)
     await page.mouse.dblclick(
       (await page.locator('.content').boundingBox()).x + (await page.locator('.content').boundingBox()).width / 2,
       spot.y,
@@ -296,9 +306,12 @@ const boxOf = async (text) => {
     await page.waitForTimeout(400)
     const created = (await blocksOn(today)).filter((b) => !beforeIds.has(b.id))
     check('double-click adds one block', created.length === 1, `${created.length} new`)
+    // Within a snap step: the click is a pixel and the answer is a quarter hour, so a
+    // half-pixel of rounding at a boundary is not a defect worth failing a build over. A
+    // block landing a whole step away is.
     check(
       'landing where you clicked',
-      created[0]?.start_min === expected,
+      Math.abs((created[0]?.start_min ?? -1e9) - expected) <= SNAP_MIN,
       `expected ${expected}, got ${created[0]?.start_min}`,
     )
     created.forEach((b) => made.push(b.id))
@@ -1107,14 +1120,21 @@ const boxOf = async (text) => {
       results[0] ? results[0].cc : 'nothing to check',
     )
 
-    // the card, at the address the page advertises for it
+    // the card, at the path the page advertises for it
     const card = await page.evaluate(async () => {
       const tag = document.querySelector('meta[property="og:image"]')
       const w = document.querySelector('meta[property="og:image:width"]')
       const h = document.querySelector('meta[property="og:image:height"]')
       if (!tag) return null
-      const url = new URL(tag.content, location.origin).href
-      const res = await fetch(url)
+      const advertised = tag.content
+      const url = new URL(advertised, location.origin)
+      // A deployment sets VITE_APP_URL so that crawlers, which are not on this host, get an
+      // absolute address. That address is a different origin from whichever server these
+      // checks are pointed at, and fetching it would be a cross-origin request that can only
+      // fail — it did, and it took the run down with it. So: fetch the same *path* from the
+      // server under test, and check the advertised address on its own terms.
+      const here = new URL(url.pathname, location.origin).href
+      const res = await fetch(here)
       const type = res.headers.get('content-type')
       // decode it: the advertised size should be the file's real size, not a hopeful label
       let real = null
@@ -1124,7 +1144,9 @@ const boxOf = async (text) => {
         real = null
       }
       return {
-        url,
+        advertised,
+        here,
+        absolute: url.origin !== location.origin,
         status: res.status,
         type,
         declared: `${w?.content}x${h?.content}`,
@@ -1132,7 +1154,16 @@ const boxOf = async (text) => {
         card: document.querySelector('meta[name="twitter:card"]')?.content,
       }
     })
-    check('the social card resolves at the address we advertise', card?.status === 200 && (card?.type || '').includes('jpeg'), `${card?.url} -> ${card?.status} ${card?.type}`)
+    check(
+      'the social card is served at the path the page advertises',
+      card?.status === 200 && (card?.type || '').includes('jpeg'),
+      `${card?.here} -> ${card?.status} ${card?.type}`,
+    )
+    check(
+      'and the address it advertises points at that same file',
+      Boolean(card) && new URL(card.advertised, 'http://x/').pathname === new URL(card.here).pathname,
+      card?.absolute ? `absolute, for crawlers: ${card.advertised}` : 'relative, as a bare clone builds it',
+    )
     check('and it really is 1200x630', card?.real === '1200x630', `declared ${card?.declared}, decoded ${card?.real}`)
     check('a large card, so the picture is the preview', card?.card === 'summary_large_image', String(card?.card))
 
@@ -1425,6 +1456,33 @@ const wantThemeLight = async () => {
   }
 }
 
+// ---- calendar sync ----------------------------------------------------------
+// This suite runs against a server with no credentials, which is exactly the state a fresh
+// install is in and worth pinning: an unconfigured calendar has to say how to connect
+// itself, and must not look as though it holds events it has never read.
+{
+  await page.locator('.view-switch button').nth(1).click() // the calendar view: the rail lives there
+  await page.waitForTimeout(500)
+
+  const panel = await page.locator('.cal').innerText().catch(() => '')
+  check(
+    'with no credentials the calendar panel says what to create',
+    /not connected/.test(panel) && /icloud\.env/.test(panel),
+    panel.split('\n').filter(Boolean).slice(0, 2).join(' · '),
+  )
+  check(
+    'and offers no Sync control that could only fail',
+    (await page.locator('.cal-sync').count()) === 0,
+    'no sync button while unconfigured',
+  )
+  check(
+    'and shows no events, because it has never read any',
+    (await page.locator('.cal-event').count()) === 0 &&
+      !/Nothing on the calendar/.test(panel),
+    'no rows, and no claim about an empty calendar',
+  )
+}
+
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop
 // in both themes, the three empty states, and the icon under its launcher masks. Baselines are
@@ -1540,6 +1598,31 @@ const wantThemeLight = async () => {
     await page.fill('.day-head input[type="date"]', d)
     await page.waitForTimeout(600)
   }
+
+  // A frozen clock, because these pictures contain the time. The header clock reads it, and
+  // the timeline's scroll position follows it (half an hour before now, minus 60px), so a
+  // couple of minutes of drift between two runs shifts the entire column by a couple of
+  // pixels. That is not a visual change, but it is a difference — this check was passing on
+  // the luck of which minute the two runs happened to land in, and 0.16% of pixels differing
+  // with a mean of 1.06 is what that looks like when the luck runs out.
+  //
+  // Only the page is frozen; the suite's own clock keeps running.
+  const SNAPSHOT_AT = new Date(`${today}T14:30:00`).toISOString()
+  await page.addInitScript((stamp) => {
+    const Real = Date
+    const fixed = new Real(stamp).getTime()
+    class FrozenDate extends Real {
+      constructor(...args) {
+        super(...(args.length ? args : [fixed]))
+      }
+      static now() {
+        return fixed
+      }
+    }
+    globalThis.Date = FrozenDate
+  }, SNAPSHOT_AT)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForTimeout(400)
 
   try {
     await wantThemeLight()
