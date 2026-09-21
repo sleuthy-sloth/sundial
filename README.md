@@ -19,17 +19,23 @@ single process.
 
 ## What it does
 
-Two views of the same day, switched from the header. It remembers which one you were in.
+Three destinations along the foot of the app, and it remembers which one you were in:
+**Today** for the plan, **Day** for the clock, **You** for the app's own settings — connecting a
+calendar among them, rather than in a column beside your day.
 
-**Plan** — the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
+**Today** — the plan, and the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
 with a count and the span it actually covers. Rows sit on hairlines with the time in the
 gutter: a slim colour edge, the title, how long it takes, and a square to fill when it is
 done. Adding to a section puts the task *after* whatever is already in that part of the
 day rather than on top of it. Anytime is the inbox.
 
-**Timeline** — a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
-the length, drag from the inbox to schedule it, double-click empty space for a short
-block.
+**Day** — the clock: a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
+the length, double-click empty space for a short block. Above 780px the rail returns beside it,
+which is where dragging a task out of the inbox and onto an hour still happens; on a phone those
+same tasks are in Today's Anytime section, one tap from the editor.
+
+**You** — the app's own settings: what is connected and how fresh it is, the theme, and which
+version this copy is. Nothing here is about the day.
 
 Shared by both: a header that reads like an instrument (the day, the time now, and which
 view you are in), light and dark themes that follow your system, the free time between
@@ -88,7 +94,7 @@ CORS to get wrong and no second port to think about. SQLite holds the data, in W
 ### The look
 
 Parchment ground, ink text, solar amber for now and for selection, twilight for evening —
-and nothing decorative after that. The two views are one ledger seen two ways: a rail with a
+and nothing decorative after that. Today and Day are one ledger seen two ways: a rail with a
 faint hour rule, blocks hanging off a thin spine, open intervals drawn as measured, named
 bands. Rows are separated by a hairline, not raised on cards; the colour you pick for a task
 is a slim edge rather than a pastel bubble; completion is a square you fill rather than a
@@ -198,10 +204,10 @@ scripts/make_art.py         the artwork, and the budgets CI checks it against
 scripts/make_icons.py       the app icon and favicon: measured geometry, two layouts
 frontend/src/App.jsx        state and layout only
 frontend/src/art.js         when the all-clear artwork is allowed to appear
-frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
-                            LedgerArt, CalendarPanel
+frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
+                            Profile, Glyph, LedgerArt, CalendarPanel
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   169 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   198 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -374,7 +380,8 @@ hour their own clock says, readable in the same ink as a block and marked as not
 a dotted hairline rather than by being faded. Where an appointment and a block share an hour, the
 block gives up half the column so both stay legible, and two appointments contesting that half are
 split between lanes instead of covering each other. Connecting and syncing came just before this:
-the rail takes an Apple ID and an app-specific password and writes the file itself, and two
+the profile tab takes an Apple ID and an app-specific password and the app writes the file
+itself, and two
 transports sit underneath, one of them switched on — iCloud syncs and is what ships, Google is
 built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which was
 about trust rather than features: it keeps what you type, the day view describes the day
@@ -386,8 +393,9 @@ accurately, and an upgrade reaches the phone on its own. The honest gaps:
 - **Nothing goes outwards.** Pushing a block out is written and tested (`block_to_ics`) and
   deliberately not wired up: nothing here writes to your calendar, on either provider.
 - **Appointments on the timeline cannot be opened.** They are text, not controls: there is
-  nowhere to go from one, and nothing about a block is inferred from it. An all-day event stays in
-  the rail, because it has no hour to sit at. A row cannot be longer than the free half allows, so
+  nowhere to go from one, and nothing about a block is inferred from it. An all-day event stays out of
+  the column — in the rail above 780px, in the profile tab's panel below it — because it has no
+  hour to sit at. A row cannot be longer than the free half allows, so
   an hour with three appointments contests a third each rather than growing the column.
 - **Nothing is inferred from the calendar.** A clash shows you the over-booked hour and stops
   there — no nudging, no "reschedule this", no suggestion. It is context beside the plan, and

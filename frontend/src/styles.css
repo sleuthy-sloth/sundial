@@ -916,8 +916,11 @@ button { cursor: pointer; }
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
   }
-  .layout.with-rail { grid-template-rows: minmax(0, 26vh) 1fr; }
-  .side { border-right: none; border-bottom: 1px solid var(--line); padding: 12px; }
+  /* No rail on a phone. It used to stack above the day at 26vh — a quarter of the screen spent
+     on the app's own plumbing above the plan. The inbox is in Today here and connecting is in
+     You, so the day gets the whole screen. Above 780px it returns beside the clock, where an
+     unscheduled task has a timeline to be dragged onto. */
+  .side { display: none; }
   .brand { display: none; }
 
   .day-head { padding: 10px 14px 8px; }
@@ -1196,3 +1199,65 @@ button { cursor: pointer; }
     animation: none !important;
   }
 }
+
+/* ---------------- the shell ----------------
+
+   The tab bar is the navigation at every width, so there is one way to move around instead of a
+   switch in the header and a rail beside the day. Fixed rather than a grid row: the content
+   scrolls under it in every layout the app has, including the editor's third column. */
+:root { --bar-h: 48px; }
+
+.layout { padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom, 0px)); }
+
+.tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.tabs button {
+  flex: 1;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-top: 2px solid transparent;
+  padding: 9px 4px 11px;
+  cursor: pointer;
+}
+.tabs button[aria-current='page'] { color: var(--text); border-top-color: var(--solar-mark); font-weight: 500; }
+
+/* ---------------- the profile tab ----------------
+
+   The app's own settings, away from the day. Plain hairline rows: a settings screen that looks
+   like a different app is the thing this app does not do. */
+.profile { max-width: 34rem; }
+.profile h2 {
+  margin: 22px 0 6px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+.profile h2:first-child { margin-top: 2px; }
+.set-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-faint); }
+.set-row .set-label { font-size: 0.9375rem; }
+.set-row .set-value { margin-left: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+.set-row button.theme-row {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.profile p.note { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }

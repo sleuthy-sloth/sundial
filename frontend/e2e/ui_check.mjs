@@ -141,10 +141,97 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 
 // ---- switching to the timeline ----
 {
-  await page.locator('.view-switch button').nth(1).click()
+  await page.locator('.tabs button[data-tab="day"]').click()
   await page.waitForSelector('.content .block')
-  check('the header switch opens the timeline', (await page.locator('.content').count()) === 1)
-  check('and says which view you are in', (await page.locator('.view-switch button[aria-pressed="true"]').count()) === 1)
+  check('the bar opens the timeline', (await page.locator('.content').count()) === 1)
+  check('and says which destination you are in', (await page.locator('.tabs button[aria-current="page"]').count()) === 1)
+}
+
+// ---- the shell: three destinations at the foot of the app --------------------
+// The navigation, replaced wholesale. A switch in the header plus a rail beside the day is what
+// put the app's own plumbing — credentials, sync, theme — in the same column as your plan, so
+// connecting a calendar sat under your inbox as though it were plan material. These checks pin
+// what took its place, and pin that the old controls are actually gone, which is the part a
+// stylesheet can lie about.
+{
+  const shell = async () => ({
+    labels: (await page.locator('.tabs button').allTextContents()).map((t) => t.trim()).join('/'),
+    current: await page.locator('.tabs button[aria-current="page"]').count(),
+    switches: await page.locator('.view-switch').count(),
+    rail: await page.locator('.side').isVisible().catch(() => false),
+  })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('.tabs')
+
+  let s = await shell()
+  check('a phone gets three destinations, named', s.labels === 'Today/Day/You', s.labels)
+  check('exactly one of them says you are there', s.current === 1)
+  check('the header switch is gone, not just restyled', s.switches === 0)
+  check('and the rail no longer spends a quarter of a phone screen above the plan', !s.rail)
+
+  const bar = await page.locator('.tabs').boundingBox()
+  check(
+    'the bar is at the foot of the window, where a thumb is',
+    bar.y + bar.height <= 845 && bar.y > 700,
+    `y ${Math.round(bar.y)}..${Math.round(bar.y + bar.height)} of 844`,
+  )
+
+  const behind = []
+  for (const key of ['today', 'day', 'you']) {
+    const b = await page.locator(`.tabs button[data-tab="${key}"]`).boundingBox()
+    const top = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y)
+        return el?.closest('.tabs button')?.dataset.tab ?? (el ? el.tagName : 'none')
+      },
+      [b.x + b.width / 2, b.y + b.height / 2],
+    )
+    behind.push(`${key}:${top === key ? 'ok' : 'BEHIND ' + top}`)
+  }
+  check('every destination is the thing on top at its own centre', behind.every((b) => b.endsWith('ok')), behind.join(' '))
+
+  // Each one shows what it says it does, and the other one leaves the screen: a destination that
+  // merely adds its panel below the previous one is not navigation.
+  const goes = []
+  for (const [key, here, away] of [['today', null, '.content'], ['day', '.content', null], ['you', '.cal', '.content']]) {
+    await page.locator(`.tabs button[data-tab="${key}"]`).click()
+    await page.waitForTimeout(350)
+    const shown = await page.locator(`.tabs button[data-tab="${key}"][aria-current="page"]`).count()
+    const got = here ? await page.locator(here).count() : 1
+    const left = away ? await page.locator(away).count() : 0
+    goes.push(`${key}:${shown === 1 && got > 0 && left === 0 ? 'ok' : `shown=${shown} here=${got} gone=${left}`}`)
+  }
+  check('today is the plan, day is the clock, you is the settings', goes.every((g) => g.endsWith('ok')), goes.join(' '))
+
+  await page.locator('.tabs button[data-tab="you"]').click()
+  await page.waitForTimeout(350)
+  check(
+    'connecting is something you reach from the profile tab, not from beside your day',
+    (await page.locator('.cal-connect-open').count()) === 1,
+  )
+  await page.locator('.cal-connect-open').click()
+  const opened = await page.locator('.cal-input').count()
+  await page.locator('.cal-cancel').click()
+  check(
+    'and its form opens and closes where it stands',
+    opened === 2 && (await page.locator('.cal-input').count()) === 0,
+    `opened ${opened}`,
+  )
+  check('the theme is stated as a setting here too', (await page.locator('.theme-row').count()) === 1)
+
+  // Wide: the bar stays the navigation, and the rail returns beside the clock — where an
+  // unscheduled task has a timeline to be dragged onto.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('.tabs')
+  await page.locator('.tabs button[data-tab="day"]').click()
+  await page.waitForTimeout(400)
+  s = await shell()
+  check('the bar is the navigation at 1280 as well', s.current === 1 && s.switches === 0, `${s.current} current, ${s.switches} switches`)
+  check('and there the rail comes back, because a drag needs somewhere to land', s.rail, `rail visible: ${s.rail}`)
+  await page.waitForSelector('.content .block')
 }
 
 // ---- what the timeline rendered ----
@@ -624,7 +711,7 @@ const boxOf = async (text) => {
 
   // 5. a capture that fails must not eat the text
   {
-    await page.locator('.view-switch button').nth(0).click()
+    await page.locator('.tabs button[data-tab="today"]').click()
     await page.waitForTimeout(300)
     await page.route('**/api/blocks', async (route) => {
       if (route.request().method() !== 'POST') return route.continue()
@@ -657,7 +744,7 @@ const boxOf = async (text) => {
     check('and pressing Enter again saves it', Boolean(kept))
     if (kept) made.push(kept.id)
 
-    await page.locator('.view-switch button').nth(1).click() // back to the timeline for the rest
+    await page.locator('.tabs button[data-tab="day"]').click() // back to the timeline for the rest
     await page.waitForTimeout(300)
   }
 
@@ -939,7 +1026,7 @@ const boxOf = async (text) => {
     const touchPage = await touchy.newPage()
     try {
       await touchPage.goto(BASE, { waitUntil: 'networkidle' })
-      await touchPage.locator('.view-switch button').nth(1).click()
+      await touchPage.locator('.tabs button[data-tab="day"]').click()
       await touchPage.waitForSelector('.content .block')
       const target = touchPage.locator('.content .block').first()
       await target.scrollIntoViewIfNeeded()
@@ -1078,7 +1165,7 @@ const boxOf = async (text) => {
   )
 
   // back to the list: with nothing left, every part of the day offers a way in
-  await page.locator('.view-switch button').nth(0).click()
+  await page.locator('.tabs button[data-tab="today"]').click()
   await page.waitForTimeout(300)
   check(
     'an empty list still offers every part of the day',
@@ -1144,7 +1231,7 @@ const boxOf = async (text) => {
   // 1. the empty inbox (the suite is sitting on one: nothing left, no blocks at all)
   {
     await wantTheme('light')
-    await page.locator('.view-switch button').nth(1).click() // the rail is the timeline's
+    await page.locator('.tabs button[data-tab="day"]').click() // the rail is the timeline's
     await until(async () => (await page.locator('.inbox').count()) === 1)
     check('the inbox really is empty before we look at it', (await inboxNow()).length === 0)
     const box = await artOf('.inbox-empty .art') // read again below once it has decoded
@@ -1179,7 +1266,7 @@ const boxOf = async (text) => {
 
   // 2. the empty timeline, on a day nothing will ever be seeded on
   {
-    await page.locator('.view-switch button').nth(1).click()
+    await page.locator('.tabs button[data-tab="day"]').click()
     await page.fill('.day-head input[type="date"]', EMPTY_DAY)
     await until(async () => (await page.locator('.state-timeline .art').count()) === 1)
 
@@ -1209,7 +1296,7 @@ const boxOf = async (text) => {
     check('the dial has a dark twin', Boolean(dark) && stem(dark.src) === 'empty-timeline-dark', stem(dark?.src))
     await wantTheme('light')
     await page.fill('.day-head input[type="date"]', today)
-    await page.locator('.view-switch button').nth(0).click()
+    await page.locator('.tabs button[data-tab="today"]').click()
     await page.waitForTimeout(400)
   }
 
@@ -1413,12 +1500,12 @@ const boxOf = async (text) => {
       await route.continue()
     })
     await page.goto(BASE, { waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('.view-switch')
+    await page.waitForSelector('.tabs')
     // choose the day first: the artwork is the same file for every empty day, so if the
     // timeline draws once before this it is cached, the route never sees a request, and the
     // check passes without ever testing a slow connection
     await page.fill('.day-head input[type="date"]', EMPTY_DAY)
-    await page.locator('.view-switch button').nth(1).click()
+    await page.locator('.tabs button[data-tab="day"]').click()
     await page.waitForSelector('.state-timeline .art')
 
     const pending = await page.evaluate(() => {
@@ -1523,17 +1610,17 @@ const boxOf = async (text) => {
 
   // the plan, where a whole day of rows is on screen
   await wantTheme('light')
-  await page.locator('.view-switch button').nth(0).click()
+  await page.locator('.tabs button[data-tab="today"]').click()
   await page.waitForTimeout(400)
   await audit('the plan, in light', TAGS)
 
   // the timeline, dark: a scroll region, blocks, and the amber now chip
-  await page.locator('.view-switch button').nth(1).click()
+  await page.locator('.tabs button[data-tab="day"]').click()
   await wantTheme('dark')
   await page.waitForTimeout(500)
   await audit('the timeline, in dark', TAGS)
   await wantTheme('light')
-  await page.locator('.view-switch button').nth(0).click()
+  await page.locator('.tabs button[data-tab="today"]').click()
   await page.waitForTimeout(400)
 
   // What does the keyboard actually see? Tab through and measure the ring at every stop: a
@@ -1565,7 +1652,11 @@ const boxOf = async (text) => {
       }
       const cs = getComputedStyle(el)
       const cls = String(el.className || '').split(' ').filter(Boolean)[0]
+      // a stable identity for the element itself, so a control that is several stops is judged once
+      window.__probeIds = window.__probeIds || new WeakMap()
+      if (!window.__probeIds.has(el)) window.__probeIds.set(el, (window.__probeIds.size || 0) + 1)
       return {
+        key: window.__probeIds.get(el),
         what: `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}`,
         width: parseFloat(cs.outlineWidth) || 0,
         style: cs.outlineStyle,
@@ -1576,17 +1667,38 @@ const boxOf = async (text) => {
       }
     })
 
+  // Walk from the top of the page. Where sequential focus starts is not the top of the document
+  // but the last thing that was clicked, and the last thing clicked to get here is a destination
+  // in the tab bar — which is last in the DOM, so the walk ended after two stops and reported
+  // that the keyboard reaches almost nothing. Focusing the body resets the starting point to the
+  // document root; clicking dead ground is the other way, except the top-left corner of this app
+  // is its date input, and clicking that opens a picker.
+  await page.evaluate(() => {
+    document.activeElement?.blur()
+    document.body.setAttribute('tabindex', '-1')
+    document.body.focus()
+  })
   const stops = []
   for (let i = 0; i < 30; i++) {
     await page.keyboard.press('Tab')
     const info = await focusInfo()
     if (!info) break
-    if (stops.length > 2 && info.what === stops[0].what) break // wrapped round
+    // No "wrapped round" shortcut: identical stops in a row are legitimate and common — an
+    // <input type="date"> is a stop per field, and a list is a stop per row — so comparing each
+    // stop to the first one ended this walk after three. The loop cap is the only stop needed.
     stops.push(info)
   }
   check('the keyboard reaches the app controls', stops.length >= 8, `${stops.length} stops`)
 
-  const ringless = stops.filter((s) => s.width < 2 || s.style === 'none' || (s.contrast ?? 99) < 3)
+  // One control can be several stops: a date field is a stop per piece, and the UA takes focus
+  // into its own shadow tree, where the app's ring cannot reach and the host's outline-style
+  // reads 'none'. So judge the ring once per element — a stop that is the same element as the
+  // one before it is that control re-entered, not a new thing that failed to show a ring.
+  const ringless = stops.filter(
+    (s, i) =>
+      !(i > 0 && stops[i - 1].key === s.key) &&
+      (s.width < 2 || s.style === 'none' || (s.contrast ?? 99) < 3),
+  )
   check(
     'and every stop shows a visible focus ring',
     ringless.length === 0,
@@ -1623,7 +1735,7 @@ const wantThemeLight = async () => {
 // install is in and worth pinning: an unconfigured calendar has to say how to connect
 // itself, and must not look as though it holds events it has never read.
 {
-  await page.locator('.view-switch button').nth(1).click() // the calendar view: the rail lives there
+  await page.locator('.tabs button[data-tab="you"]').click() // the calendar lives in the profile tab now
   await page.waitForTimeout(500)
 
   const panel = await page.locator('.cal').innerText().catch(() => '')
@@ -1780,8 +1892,8 @@ const wantThemeLight = async () => {
   await page.waitForTimeout(600)
 
   const setSize = (w, h) => page.setViewportSize({ width: w, height: h })
-  const setView = async (i) => {
-    await page.locator('.view-switch button').nth(i).click()
+  const setTab = async (name) => {
+    await page.locator(`.tabs button[data-tab="${name}"]`).click()
     await page.waitForTimeout(400)
   }
   const setDay = async (d) => {
@@ -1817,39 +1929,42 @@ const wantThemeLight = async () => {
   try {
     await wantThemeLight()
     await setDay(today)
-    await setView(0)
+    await setTab('today')
     await shoot('desktop-plan-light', async () => {
       await setSize(1280, 900)
       await setDay(today)
-      await setView(0)
+      await setTab('today')
     })
     await shoot('desktop-plan-dark', async () => {
       await setSize(1280, 900)
       await setDay(today)
-      await setView(0)
+      await setTab('today')
       await page.locator('.theme-toggle').click()
     })
     await page.locator('.theme-toggle').click() // back to light
     await shoot('desktop-timeline-light', async () => {
       await setSize(1280, 900)
       await setDay(today)
-      await setView(1)
+      await setTab('day')
     })
     await shoot('phone-plan-light', async () => {
       await setSize(390, 844)
       await setDay(today)
-      await setView(0)
+      await setTab('today')
     })
     await shoot('phone-empty-timeline', async () => {
       await setSize(390, 844)
       await setDay(EMPTY_DAY)
-      await setView(1)
+      await setTab('day')
       await until(async () => (await page.locator('.state-timeline .art').count()) === 1)
     })
     await shoot('phone-empty-inbox', async () => {
+      // The inbox on a phone is the plan's Anytime section now — the rail's tray stacked above
+      // the day was what this shot used to capture, and it is gone above 780px only. Same day,
+      // same empty state, the place it is actually shown.
       await setSize(390, 844)
       await setDay(EMPTY_DAY)
-      await setView(1)
+      await setTab('today')
     })
     await shoot('phone-day-complete', async () => {
       // a genuinely finished day: everything on it done, nothing left in the inbox, and it has
@@ -1861,7 +1976,7 @@ const wantThemeLight = async () => {
       await setSize(390, 844)
       await page.reload({ waitUntil: 'networkidle' })
       await setDay(today)
-      await setView(0)
+      await setTab('today')
       await until(async () => (await page.locator('.state-complete .art').count()) === 1)
       await page.locator('.state-complete').scrollIntoViewIfNeeded()
     })
@@ -1958,7 +2073,7 @@ if (disposableIcloud) {
   const appleId = 'browser-check@example.com'
   const appPassword = 'not-a-real-password-a1b2'
 
-  await page.locator('.view-switch button').nth(1).click()
+  await page.locator('.tabs button[data-tab="you"]').click()
   await page.waitForTimeout(400)
   if ((await page.locator('.cal-connect-open').count()) > 0) {
     await page.locator('.cal-connect-open').click()

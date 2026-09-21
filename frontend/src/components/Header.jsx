@@ -3,10 +3,10 @@ import { shortDate } from '../time'
 import Glyph from './Glyph'
 
 /** The day, then the controls, then the reading. The weekday is a compact label rather than a
- *  headline, and the view switch is a labelled control here instead of a capsule floating over
- *  the content it covers. */
+ *  headline. Where you are lives in the tab bar at the foot of the app, not up here: the header
+ *  is about the day, and the day is the same whichever destination you are standing in. */
 export default function Header({
-  day, today, clock, tally, view, theme, error, onPickDay, onShift, onView, onTheme,
+  day, today, clock, tally, theme, error, onPickDay, onShift, onTheme,
 }) {
   // The day name opens the picker instead of a second control repeating the same date next to
   // it. showPicker is not everywhere, so where it is missing the input stays on screen.
@@ -52,15 +52,6 @@ export default function Header({
         )}
 
         <span className="spacer" />
-
-        <div className="view-switch" role="group" aria-label="View">
-          <button type="button" aria-pressed={view === 'todo'} onClick={() => onView('todo')}>
-            Plan
-          </button>
-          <button type="button" aria-pressed={view === 'calendar'} onClick={() => onView('calendar')}>
-            Timeline
-          </button>
-        </div>
       </div>
 
       <div className="head-row">
