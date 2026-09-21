@@ -181,6 +181,8 @@ committing.
 backend/app.py              the API and the block rules (FastAPI)
 backend/store.py            the database handle, so two modules can open one
 backend/calendar_sync.py    iCalendar and Google JSON ⇄ the event model, and the rules (pure)
+backend/env_file.py         the key=value writer both credential files use: 0600, by rename
+backend/credentials.py      which keys each provider's file may hold, and what is refused
 backend/calendar_errors.py  the error vocabulary both transports speak, and what each means
 backend/palette.py          the eight colours, and how a foreign colour lands on one of them
 backend/caldav.py           the iCloud transport: CalDAV in, event rows out. No database
@@ -189,7 +191,7 @@ backend/google_oauth.py     Google's consent flow: PKCE, a single-use state, a 0
 backend/calendar_service.py the sync: credentials, transport, rules, database, sync_log
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
-backend/test_*.py           233 tests
+backend/test_*.py           252 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -199,7 +201,7 @@ frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
                             LedgerArt, CalendarPanel
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   161 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   169 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -231,18 +233,24 @@ beside it.
 iCloud first, because it needs nothing but an app-specific password:
 
 1. Make one at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security →
-   App-Specific Passwords. Your normal Apple ID password will not work, and the app says so
-   in those words rather than failing cryptically.
-2. Create `icloud.env` next to this README. It is gitignored, and read fresh at every sync,
-   so pasting a password does not need a service restart:
+   App-Specific Passwords. Your normal Apple ID password will not work, and sundial never asks
+   for it — only for the one Apple generates.
+2. Open the calendar view and press **Connect**. The panel asks for the Apple ID and that
+   password, and writes them into `icloud.env` next to this README at 0600. Nothing typed into
+   that form comes back in an answer, goes into a log, or reaches the database.
+3. Press **Sync**. Whether the password is right is the sync's answer rather than the form's, so
+   that is where a wrong one shows up — as a calendar error, in the words iCloud used.
+
+Rather use the terminal, or point it at a CalDAV server that is not iCloud? The file the panel
+writes is an ordinary one, and `ICLOUD_CALDAV_URL` is only settable there:
 
        ICLOUD_USERNAME=you@example.com
        ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-       ICLOUD_CALDAV_URL=https://caldav.icloud.com/    # optional — any CalDAV server
+       ICLOUD_CALDAV_URL=https://caldav.fastmail.com/dav/calendars/    # optional
 
-3. Run `python scripts/check_calendar.py`. It connects, lists the calendars it found, counts
-   what is in the window, and prints no credentials — not the password, not the username.
-   Add `--sync` to store them, or press **Sync** in the app's calendar view.
+`python scripts/check_calendar.py` connects by hand, lists the calendars it found, counts what
+is in the window, and prints no credentials — not the password, not the username. `--sync`
+stores them without going through the app.
 
 What it pulls is a window: seven days back, sixty forward, recomputed at every sync. Anything
 outside it is left alone, including events you already hold. Nothing needs a timer — opening
@@ -294,11 +302,22 @@ the new schema stays, and the old code no longer knows how to read it.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
-cd frontend && npm test                                # 25 unit tests, node --test
-cd frontend && npm run check:ui                        # 160 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 252 tests
+cd frontend && npm test                                # 38 unit tests, node --test
+cd frontend && npm run check:ui                        # 169 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
+
+One of the browser checks types a credential and the server writes it to a file, so the suite
+has to be told where that file is or it refuses to run that check:
+
+```
+SUNDIAL_CHECK_ICLOUD_ENV=/tmp/icloud.env npm run check:ui -- http://127.0.0.1:6770
+```
+
+Point it at the same path the server has in `SUNDIAL_ICLOUD_ENV`, outside the checkout. Without
+being told, the write would land on the server's default — which, on a box serving a real
+sundial, is a real credential file.
 
 The browser checks drive headless Chromium with real mouse input — actual drags, not
 synthesised events — then read the API back to confirm the server agrees with what the
@@ -350,8 +369,10 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.4.0. Two transports, one of them switched on: iCloud syncs and is what ships, and Google
-is built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which
+v0.5.0. Connecting happens in the app now: the calendar rail takes an Apple ID and an
+app-specific password and writes the file itself, so a working sync no longer starts with
+editing a file on the box. Two transports underneath, one of them switched on — iCloud syncs and
+is what ships, and Google is built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which
 was about trust rather than features: it keeps what you type, the day view describes the day
 accurately, and an upgrade reaches the phone on its own. The honest gaps:
 

@@ -767,12 +767,48 @@ button { cursor: pointer; }
 .cal-other,
 .cal-why,
 .cal-empty { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-.cal-why code {
-  font-family: var(--mono);
+/* Connecting: the one form in the app that takes a secret. Labelled, quiet, and never a
+   modal — the rest of the day stays on screen behind it. */
+.cal-connect { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.cal-connect-open,
+.cal-save {
+  font: inherit;
   font-size: 11px;
+  padding: 3px 10px;
+  color: var(--accent);
   background: var(--surface-2);
-  padding: 1px 3px;
-  border-radius: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  cursor: pointer;
+}
+.cal-connect-open:hover,
+.cal-save:hover { background: var(--accent-soft); }
+.cal-save:disabled { color: var(--muted); background: none; cursor: default; }
+.cal-actions { display: flex; gap: 6px; }
+.cal-cancel {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-block);
+  cursor: pointer;
+}
+.cal-cancel:hover { color: var(--text); border-color: var(--line); }
+.cal-form { display: flex; flex-direction: column; gap: 6px; width: 100%; margin: 0; }
+.cal-field { display: flex; flex-direction: column; gap: 2px; }
+.cal-label { font-size: 11px; color: var(--muted); }
+.cal-input {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  padding: 4px 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 /* A sync that failed reads in the app's warm mark colour, never alarm red: this app has no
    red, and a calendar that is behind is not an emergency. */

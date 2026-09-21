@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 import calendar_service
 import calendar_sync
+import credentials
 import google_oauth
 from caldav import CalDavError, NotConfigured
 from calendar_errors import CalendarError
@@ -157,7 +158,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="sundial",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
@@ -346,6 +347,39 @@ def get_calendars() -> dict:
         "last_sync": calendar_service.last_sync(),
         "calendars": calendar_service.calendars(),
         "providers": providers,
+    }
+
+
+class CredentialsIn(BaseModel):
+    provider: str = Field(min_length=1, max_length=32)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+@app.post("/api/calendars/credentials")
+def save_calendar_credentials(body: CredentialsIn) -> dict:
+    """Take a credential from the panel and write it into that provider's file.
+
+    The only route in sundial that accepts something secret that a person typed. It answers
+    with the provider's state — never with what it was given — and it does not log: the value
+    came from a form, and a form is not a reason for a secret to end up in a log file. Which
+    keys are allowed, and why, is `credentials.py`.
+
+    Read back rather than assumed: the reply says `configured` only if the provider's own
+    reader agrees, so a write that landed somewhere useless cannot look like success.
+    """
+    try:
+        target = credentials.save(body.provider, body.fields)
+    except credentials.Refused as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    source = next((s for s in calendar_service.sources() if s.provider == target.provider), None)
+    return {
+        "provider": target.provider,
+        # `configured` and `why` come from the provider's own reader rather than from "the
+        # write did not raise": for Google, credentials saved without a refresh token are
+        # half a connection, and the reply has to be able to say which half is missing.
+        "configured": bool(source and source.configured),
+        "why": source.why if source else "",
     }
 
 

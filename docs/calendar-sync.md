@@ -147,6 +147,34 @@ Then `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` go into `google.env` (0600, g
 the credentials form in the panel follows, and the `coming_soon` flag comes off — one line in
 `app.py`, one sentence in the panel.
 
+## Entering a credential from the panel
+
+`POST /api/calendars/credentials` is the only route in sundial that accepts something secret a
+person typed. It exists because the alternative — editing a file on the box — is most of the
+work of a self-hosted single-user app, and because the phone has no terminal.
+
+Four rules, each with a test:
+
+* **Keys come from a table** (`credentials.py`). Anything else is refused and named rather than
+  ignored: silently dropping a misspelled key leaves a file that looks right and does nothing.
+* **The refresh token is not in the table.** Google's callback owns it. A route that could
+  accept one could point sundial at somebody else's calendar.
+* **A value with a line break in it is refused.** The file holds one key per line, so a value
+  that can contain a line break is a way to write keys nobody asked for.
+* **Nothing comes back.** The reply is the provider's state — configured, and why not — never
+  what was sent, and the route writes nothing to a log.
+
+The file is written 0600 by rename, with the temporary opened 0600 from the start
+(`env_file.py`), so it is never briefly readable and a reader never sees half of it. Values are
+stripped rather than refused: an app-specific password pasted from Apple's page arrives with a
+space or a newline on the end more often than not.
+
+Two things this deliberately does not claim. **Saving is not connecting**: the panel says
+connected when the file is right, and the sync it runs next is what finds out whether the
+password works, so a wrong password reads as a calendar error rather than a form error. And
+**the route is as reachable as the app is** — it has no separate authentication because sundial
+has none: the tailnet is the boundary, here as everywhere else.
+
 ## Scheduling
 
 No daemon and no timer in this slice. The calendar view asks for a sync when it opens, and

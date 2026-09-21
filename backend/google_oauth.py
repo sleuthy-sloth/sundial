@@ -44,6 +44,8 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 
+import env_file
+
 from calendar_errors import CalendarError, NotConfigured, Reconnect
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -136,51 +138,35 @@ def load_configuration(path: str | Path | None = None) -> Configuration:
     )
 
 
+# The order keys are written in, and the note at the top of the file. Here rather than in the
+# writer because they are what this file *is*; `credentials.py` refers to both.
+ORDER = (
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "GOOGLE_REFRESH_TOKEN",
+    "GOOGLE_ACCOUNT",
+)
+
+HEADER = (
+    "# Written by sundial. Holds a client secret and a refresh token: keep it 0600,",
+    "# keep it out of the repository, and delete the app's access at",
+    "# myaccount.google.com/permissions to revoke it.",
+)
+
+
 def save(path: str | Path | None, **updates: str) -> None:
     """Merge keys into the config file, 0600, written by rename.
 
-    A merge rather than a rewrite: the file holds a client secret a person pasted in by
-    hand, and the app adding a refresh token to it must not be a way to lose that.
+    A merge rather than a rewrite: the file holds a client secret a person pasted in by hand,
+    and the app adding a refresh token to it must not be a way to lose that.
     """
-    p = Path(path or config_path())
-    values: dict[str, str] = {}
-    if p.is_file():
-        for raw in p.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                values[key.strip()] = value.strip()
-
-    values.update({k: v for k, v in updates.items() if v is not None})
-
-    ordered = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI",
-               "GOOGLE_REFRESH_TOKEN", "GOOGLE_ACCOUNT"]
-    lines = [
-        "# Written by sundial. Holds a client secret and a refresh token: keep it 0600,",
-        "# keep it out of the repository, and delete the app's access at",
-        "# myaccount.google.com/permissions to revoke it.",
-    ]
-    for key in ordered:
-        if values.get(key):
-            lines.append(f"{key}={values[key]}")
-    for key in sorted(set(values) - set(ordered)):
-        if values[key]:
-            lines.append(f"{key}={values[key]}")
-    body = "\n".join(lines) + "\n"
-
-    p.parent.mkdir(parents=True, exist_ok=True)
-    temporary = p.with_name(f".{p.name}.{os.getpid()}.tmp")
-    # Opened 0600 from the start, so the secret is never briefly world-readable between
-    # the write and a later chmod.
-    handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(temporary, p)
-    finally:
-        if temporary.exists():
-            temporary.unlink(missing_ok=True)
-    os.chmod(p, 0o600)
+    env_file.write(
+        path or config_path(),
+        {key: value for key, value in updates.items() if value is not None},
+        order=ORDER,
+        header=HEADER,
+    )
 
 
 # --------------------------------------------------------------------------- the handshake
