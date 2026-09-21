@@ -8,11 +8,12 @@ SQLite because it is one user, and `scripts/backup.py` copies it safely.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import os
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ import calendar_service
 import calendar_sync
 import credentials
 import google_oauth
+import push
 from caldav import CalDavError, NotConfigured
 from calendar_errors import CalendarError
 from spa import SpaStaticFiles
@@ -150,10 +152,58 @@ class BlockPatch(BaseModel):
     unschedule: bool = False  # move the block back to the inbox
 
 
+class SubscribeIn(BaseModel):
+    """A browser's push subscription, exactly as `PushManager.subscribe` hands it over."""
+
+    endpoint: str
+    keys: dict[str, str] = Field(default_factory=dict)
+
+
+class UnsubscribeIn(BaseModel):
+    endpoint: str
+
+
+# How often the app asks whether anything has come due. A minute is the resolution of the
+# plan itself — blocks are placed to the minute — so a finer tick would only spend battery
+# to be more precise than the thing it is reporting on.
+TICK_SECONDS = 60
+
+
+def _announce_once() -> dict:
+    with db() as conn:
+        return push.tick(conn)
+
+
+async def _announce_loop() -> None:
+    """Say what has come due, once a minute, for as long as the app is running.
+
+    In a thread, because the send is a blocking network call and this loop shares a process
+    with the day: a push service taking its time must not make the app feel slow. The first
+    tick is a whole interval away, which is also what stops a restart from re-announcing the
+    minute it was restarted in.
+    """
+    while True:
+        try:
+            await asyncio.sleep(TICK_SECONDS)
+            await asyncio.to_thread(_announce_once)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A notification that could not be sent is not a reason to stop serving the plan.
+            # Nothing was recorded, so nothing is lost and the next tick tries again.
+            pass
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     bootstrap()
-    yield
+    announces = asyncio.create_task(_announce_loop())
+    try:
+        yield
+    finally:
+        announces.cancel()
+        with suppress(asyncio.CancelledError):
+            await announces
 
 
 app = FastAPI(
@@ -422,6 +472,60 @@ def get_events(day: Optional[str] = None) -> dict:
     end = start + timedelta(days=1)
     events = calendar_service.events_between(start, end)
     return {"day": day, "count": len(events), "events": events}
+
+
+@app.get("/api/push/key")
+def push_key() -> dict:
+    """What a browser needs in order to subscribe, and how many already have.
+
+    The count is here rather than in a status endpoint of its own because the settings panel
+    has to be able to tell "you turned this on" from "you turned this on and it is gone" —
+    a subscription the push service has forgotten is deleted by the sender, and the panel is
+    the only place that becomes visible.
+    """
+    with db() as conn:
+        subscribers = conn.execute(
+            "SELECT COUNT(*) AS n FROM push_subscriptions"
+        ).fetchone()["n"]
+    return {"public_key": push.public_key(), "subscribers": subscribers}
+
+
+@app.post("/api/push/subscribe", status_code=201)
+def push_subscribe(body: SubscribeIn) -> dict:
+    """Keep a browser's subscription. Re-subscribing updates rather than doubles."""
+    try:
+        sub = push.subscription(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    with db() as conn:
+        push.remember(conn, sub)
+        subscribers = conn.execute(
+            "SELECT COUNT(*) AS n FROM push_subscriptions"
+        ).fetchone()["n"]
+    return {"endpoint": sub["endpoint"], "subscribers": subscribers}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: UnsubscribeIn) -> dict:
+    """Forget one subscription. Turning it off has to work from the device that turned it on.
+
+    A POST rather than a DELETE with the endpoint in the path: an endpoint is a URL with
+    slashes and a query string, and a path parameter that has to be escaped twice is a bug
+    waiting for the one subscription whose endpoint contains something awkward.
+    """
+    with db() as conn:
+        removed = push.forget(conn, body.endpoint)
+        subscribers = conn.execute(
+            "SELECT COUNT(*) AS n FROM push_subscriptions"
+        ).fetchone()["n"]
+    return {"removed": bool(removed), "subscribers": subscribers}
+
+
+@app.post("/api/push/test")
+def push_test() -> dict:
+    """Send one notification now, so the path can be proved without waiting for an hour."""
+    with db() as conn:
+        return push.nudge(conn)
 
 
 @app.delete("/api/blocks/{block_id}", status_code=204)

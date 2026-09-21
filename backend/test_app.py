@@ -322,9 +322,12 @@ def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
             " done, updated_at) VALUES ('legacy', 'old row', '20260921', 600, 30, 'slate', '',"
             " '', 0, '2026-09-20T00:00:00')"
         )
-        conn.execute("DELETE FROM schema_version WHERE version = 3")
+        # From 3 up, not just 3: the repair is replayed by removing its version record, and
+        # any later migration has to go with it or MAX(version) still reads past 3 and the
+        # runner correctly decides it has nothing to do.
+        conn.execute("DELETE FROM schema_version WHERE version >= 3")
 
-    assert sundial.migrate() == [3]
+    assert sundial.migrate() == [3, 4]
 
     with sundial.db() as conn:
         rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))

@@ -97,7 +97,7 @@ def main() -> int:
         day = "2026-09-21"
         first = run("day", db, day=day)
         check("the app makes a database and answers", "blocks" in first)
-        check("every migration runs", schema_versions(db) == [1, 2, 3], str(schema_versions(db)))
+        check("every migration runs", schema_versions(db) == [1, 2, 3, 4], str(schema_versions(db)))
         standup = run("create", db, block={"title": "Standup", "day": day, "start_min": 540, "duration_min": 30})
         check("a plan can be saved", standup.get("title") == "Standup")
 
@@ -109,13 +109,13 @@ def main() -> int:
         # form, and the repair that knows about it not yet applied.
         conn = sqlite3.connect(db)
         conn.execute("UPDATE blocks SET day = ? WHERE id = ?", ("20260921", old["id"]))
-        conn.execute("DELETE FROM schema_version WHERE version = 3")
+        conn.execute("DELETE FROM schema_version WHERE version >= 3")
         conn.commit()
         conn.close()
 
         after = run("day", db, day=day)
         titles = [b["title"] for b in after["blocks"]]
-        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3], str(schema_versions(db)))
+        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4], str(schema_versions(db)))
         check("a day stored the old way is repaired", "Old plan" in titles)
         check("and found on the day it was meant for", any(b["id"] == old["id"] for b in after["blocks"]))
         check("the plans that were already fine are untouched", "Standup" in titles)

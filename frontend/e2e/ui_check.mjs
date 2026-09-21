@@ -1791,6 +1791,46 @@ const wantThemeLight = async () => {
   )
 }
 
+// ---- notifications ----------------------------------------------------------
+// Off until it is asked for, and its own state said in words rather than as a switch position.
+// Two things hold in any browser, which is why those are what get asserted instead of the
+// particular state: a control is only offered when it could actually do something, and the
+// limit is on screen — sundial sends these itself, so it can only send while it is running.
+{
+  const profile = await page.locator('.profile').innerText()
+  const state = (await page.locator('.profile .push-state').innerText()).trim()
+  const blocked = await page.locator('.profile .push-blocked').count()
+  const toggles = await page.locator('.profile .push-toggle').count()
+
+  check(
+    'the profile says what would be notified, and when',
+    /Notifications/i.test(profile) && /When a block starts/.test(profile),
+    state ? `"When a block starts" · ${state}` : 'nothing about notifications',
+  )
+  check(
+    'and names its own state in words, rather than a switch nobody can verify',
+    /^(On|Off)$/.test(state),
+    state || '(no state shown)',
+  )
+  check(
+    'and offers a control only when one could actually work',
+    (blocked === 1 && toggles === 0) || (blocked === 0 && toggles === 1),
+    blocked
+      ? 'refused by this browser, and says why instead of offering a dead control'
+      : 'offered, because this browser could turn it on',
+  )
+  check(
+    'and admits it can only send while the app is running',
+    /only send while it is running/.test(profile),
+    'the limit is on screen rather than discovered later',
+  )
+  check(
+    'and promises nothing beyond the one notification',
+    /no reminders, no summary/.test(profile),
+    'the wording rules out the nagging it could have had',
+  )
+}
+
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop
 // in both themes, the three empty states, and the icon under its launcher masks. Baselines are
