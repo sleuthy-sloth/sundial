@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check:ui": "node e2e/ui_check.mjs",
+    "test": "node --test src/*.test.js",
     "shots": "node e2e/screenshot.mjs"
   },
   "dependencies": {

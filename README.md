@@ -72,19 +72,21 @@ inherited one makes pip install into a hollow venv.)
 ## How it is put together
 
 One Python process serves the API and the built app on the same origin, so there is no
-CORS to get wrong and no second port to think about. SQLite holds the data; a backup is
-copying `backend/sundial.db`.
+CORS to get wrong and no second port to think about. SQLite holds the data, in WAL mode:
+`scripts/backup.py` is how you copy it (see [Backup and restore](#backup-and-restore)).
 
 ```
 backend/app.py              the API and the block rules (FastAPI)
 backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
 backend/migrations/         numbered .sql files, applied on boot
-backend/test_*.py           34 tests
+backend/test_*.py           77 tests
 frontend/src/App.jsx        state and layout only
 frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
                             Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   57 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   76 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
+frontend/src/saving.test.js unit tests for the editing pieces (node --test)
+scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
 ```
 
@@ -99,17 +101,47 @@ instant, and a multi-day event cannot fit an invariant that says a block stays i
 day. Keeping them apart means `blocks` keeps meaning "the day I made", and sync only has
 to move rows between two shapes it owns.
 
+## Backup and restore
+
+The database runs in WAL mode, so a committed write sits in `sundial.db-wal` until a
+checkpoint folds it into the main file. **Copying `sundial.db` by hand can therefore miss
+the thing you just saved** — and the copy is still a valid database, so nothing complains
+until you go looking for a row that is not there. Copy it through SQLite instead:
+
+```
+python3 scripts/backup.py                # writes backend/sundial-<date>.db
+python3 scripts/backup.py --to ~/plans.db
+```
+
+To put one back, stop the service first:
+
+```
+systemctl --user stop sundial
+python3 scripts/backup.py --restore ~/plans.db
+systemctl --user start sundial
+```
+
+A restore keeps the database it replaced beside it as `sundial.replaced-<date>.db`, and
+removes the old `-wal`/`-shm` files, which belong to the database being replaced rather
+than the one arriving.
+
+Back up before upgrading. Reverting to the previous version does not undo a migration:
+the new schema stays, and the old code no longer knows how to read it.
+
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 34 tests
-cd frontend && npm run check:ui                        # 57 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 77 tests
+cd frontend && npm test                                # 8 unit tests, node --test
+cd frontend && npm run check:ui                        # 76 browser checks
 ```
 
 The browser checks drive headless Chromium with real mouse input — actual drags, not
 synthesised events — then read the API back to confirm the server agrees with what the
 screen did. They derive their expectations from the API instead of hardcoding counts,
-seed their own data, and delete exactly what they created.
+seed their own data, and delete exactly what they created. They also hold requests open,
+answer them out of order and fail them on purpose, because a phone on a bad connection
+does all three and none of it may lose what was typed.
 
 To regenerate the screenshots above, start a second instance against a throwaway database
 and run the shooter. It refuses to run against a database that already has plans in it:
