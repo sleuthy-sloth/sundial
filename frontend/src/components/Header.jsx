@@ -24,24 +24,29 @@ export default function Header({
         aria-label="Pick a date"
       />
       <div className="head-row">
-        <button className="step" onClick={() => onShift(-1)} title="Previous day" aria-label="Previous day">
+        <button type="button" className="step" onClick={() => onShift(-1)} title="Previous day" aria-label="Previous day">
           {'\u2039'}
         </button>
-        <button
-          className="day-id"
-          onClick={() => canPick && picker.current?.showPicker()}
-          title="Pick a date"
-          aria-label={`Change the day, currently ${shortDate(day)}`}
-        >
-          <span className="day-name">{shortDate(day)}</span>
-        </button>
+        {/* The day is what this page is about, so it is the h1. The button that opens the date
+            picker lives INSIDE the heading rather than around it: a heading inside a button is
+            invalid, and a screen reader wants to hear the day as the page's title. */}
+        <h1 className="day-heading">
+          <button type="button"
+            className="day-id"
+            onClick={() => canPick && picker.current?.showPicker()}
+            title="Pick a date"
+            aria-label={`Change the day, currently ${shortDate(day)}`}
+          >
+            <span className="day-name">{shortDate(day)}</span>
+          </button>
+        </h1>
         <span className="day-clock">{clock}</span>
-        <button className="step" onClick={() => onShift(1)} title="Next day" aria-label="Next day">
+        <button type="button" className="step" onClick={() => onShift(1)} title="Next day" aria-label="Next day">
           {'\u203a'}
         </button>
 
         {day !== today && (
-          <button className="today-pill" onClick={() => onPickDay(today)}>
+          <button type="button" className="today-pill" onClick={() => onPickDay(today)}>
             Today
           </button>
         )}
@@ -49,10 +54,10 @@ export default function Header({
         <span className="spacer" />
 
         <div className="view-switch" role="group" aria-label="View">
-          <button aria-pressed={view === 'todo'} onClick={() => onView('todo')}>
+          <button type="button" aria-pressed={view === 'todo'} onClick={() => onView('todo')}>
             Plan
           </button>
-          <button aria-pressed={view === 'calendar'} onClick={() => onView('calendar')}>
+          <button type="button" aria-pressed={view === 'calendar'} onClick={() => onView('calendar')}>
             Timeline
           </button>
         </div>
@@ -67,7 +72,7 @@ export default function Header({
           </span>
         )}
         <div className="head-actions">
-          <button
+          <button type="button"
             className="theme-toggle"
             onClick={onTheme}
             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}

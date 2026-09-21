@@ -143,7 +143,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
           onBlur={flush}
           aria-label="Title"
         />
-        <button className="close" onClick={onClose} aria-label="Close editor">×</button>
+        <button type="button" className="close" onClick={onClose} aria-label="Close editor">×</button>
       </div>
 
       <div className="editor-status" data-state={status} aria-live="polite">
@@ -162,7 +162,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
       <label className="field">
         <span>Icon</span>
         <div className="icon-grid">
-          <button
+          <button type="button"
             className={`icon-pick${block.icon ? '' : ' on'}`}
             onClick={() => act({ icon: '' })}
             aria-label="No icon"
@@ -170,7 +170,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
             –
           </button>
           {ICONS.map((glyph) => (
-            <button
+            <button type="button"
               key={glyph}
               className={`icon-pick${block.icon === glyph ? ' on' : ''}`}
               onClick={() => act({ icon: glyph })}
@@ -245,7 +245,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
         <span>Colour</span>
         <div className="swatches">
           {COLORS.map((c) => (
-            <button
+            <button type="button"
               key={c}
               className={`swatch c-${c}${block.color === c ? ' on' : ''}`}
               onClick={() => act({ color: c })}
@@ -269,12 +269,12 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
         {block.day === null ? (
           <span className="muted">In the inbox — drag it onto the timeline.</span>
         ) : (
-          <button onClick={() => act({ unschedule: true })}>Back to inbox</button>
+          <button type="button" onClick={() => act({ unschedule: true })}>Back to inbox</button>
         )}
-        <button className={block.done ? 'primary' : ''} onClick={() => act({ done: !block.done })}>
+        <button type="button" className={block.done ? 'primary' : ''} onClick={() => act({ done: !block.done })}>
           {block.done ? 'Done' : 'Mark done'}
         </button>
-        <button className="danger" onClick={onRemove}>Delete</button>
+        <button type="button" className="danger" onClick={onRemove}>Delete</button>
       </div>
     </aside>
   )

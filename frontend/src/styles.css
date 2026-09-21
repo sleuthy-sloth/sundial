@@ -45,6 +45,9 @@
   --solar: #d9822b; /* FILL only: ink on it is 5.4:1. On parchment it is 2.6:1 — never a stroke. */
   --solar-mark: #a85c12; /* 4.4:1 — the now line, selection, focus rings */
   --solar-wash: rgba(217, 130, 43, 0.14);
+  --on-solar: #25231f; /* text ON a solar fill: 6.0:1, where --text is parchment in the dark
+                          theme and measures 1.96:1 — the token for ink is not the token for ink
+                          on amber */
   --twilight: #536b92; /* 4.8:1 — evening, and safe as text */
   --twilight-wash: rgba(83, 107, 146, 0.12);
   --accent: var(--solar-mark);
@@ -147,6 +150,36 @@ button { cursor: pointer; }
 .layout.with-editor { grid-template-columns: 1fr 330px; }
 .layout.with-rail.with-editor { grid-template-columns: 290px 1fr 330px; }
 
+/* ---------------- focus ----------------
+
+   One treatment for the whole app, and it appears only for keyboard users: `:focus` would ring
+   every button anyone clicks with a mouse, which is noise, while `:focus-visible` is exactly the
+   case a reader needs to see where they are.
+
+   The ring is --solar-mark: the same amber as the now line and selection, 4.4:1 on parchment and
+   7.3:1 on charcoal, both clear of the 3:1 WCAG asks of a non-text indicator. Two pixels, offset
+   two, so it clears the element's own edge — a row is a hairline thick and an inset ring would
+   disappear into it.
+
+   Nothing removes this. An input that used to swap its border colour on focus keeps that as an
+   extra cue and keeps the outline too: a border-colour change is a 1px thick signal that a
+   colour-blind reader cannot see at all. */
+:focus-visible {
+  outline: 2px solid var(--solar-mark);
+  outline-offset: 2px;
+}
+
+/* The scroll containers take an inset ring: an offset one around a region the size of the
+   viewport would be clipped by whatever holds it. */
+.scroller:focus-visible { outline-offset: -2px; }
+
+/* A whole block or row is a large target, and an offset ring around it would sit under its
+   neighbours; inset reads better there and is still a full perimeter. */
+.block:focus-visible,
+.row-open:focus-visible {
+  outline-offset: -2px;
+}
+
 /* ---------------- inbox ---------------- */
 
 .side {
@@ -171,9 +204,9 @@ button { cursor: pointer; }
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--r-block);
-  outline: none;
 }
-.capture input:focus { border-color: var(--accent); }
+/* the border is a second cue, not a replacement for the ring */
+.capture input:focus-visible { border-color: var(--accent); }
 
 .side-head {
   margin: 22px 0 10px;
@@ -228,6 +261,15 @@ button { cursor: pointer; }
 
 /* The day identity is an instrument reading, not a headline: SUN 20 SEP and the time now.
    The big serif weekday is gone — it said the same thing in three times the space. */
+.day-heading {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+
 .day-id {
   display: flex;
   align-items: baseline;
@@ -375,7 +417,7 @@ button { cursor: pointer; }
   left: calc(-1 * var(--gutter) + 6px);
   top: -11px;
   background: var(--solar); /* a fill: ink on it is 5.4:1, the mark itself would be 2.6:1 */
-  color: var(--text);
+  color: var(--on-solar);
   font-size: 0.6875rem;
   font-weight: 500;
   padding: 2px 6px;
@@ -481,6 +523,11 @@ button { cursor: pointer; }
   position: absolute;
   left: 3px;
   right: 10px;
+  /* a real <button>: the browser's own font, centring and padding are undone here so the block
+     looks exactly as it did when it was a div wearing the role */
+  font: inherit;
+  color: inherit;
+  text-align: left;
   padding: 5px 9px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -696,7 +743,7 @@ button { cursor: pointer; }
   .brand { display: none; }
 
   .day-head { padding: 10px 14px 8px; }
-  .day-title { font-size: 1.875rem; }
+  .day-heading { font-size: 1.875rem; }
   .tally { display: none; }
   .view { padding: 6px 14px 108px; }
 
@@ -750,11 +797,10 @@ button { cursor: pointer; }
   flex: 1;
   border: none;
   background: none;
-  outline: none;
   font-size: 0.9375rem;
 }
 .capture-card:hover, .capture-card:focus-within { border-color: var(--accent); }
-[data-theme='dark'] .capture-card { border-color: #3a3d45; }
+[data-theme='dark'] .capture-card { border-color: var(--line); }
 
 .agenda { display: flex; flex-direction: column; gap: 24px; }
 
@@ -805,16 +851,30 @@ button { cursor: pointer; }
 
 /* The ledger row: time in the gutter, a slim colour edge, the title. One hairline between
    rows and nothing else — no card, no shadow, no bubble. */
+/* The row is a container, not a control: it holds two siblings — the completion square and the
+   button that opens the editor — because nesting one inside the other is invalid. */
 .row {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
   padding: 11px 6px 11px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.row-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
   text-align: left;
+  font: inherit;
+  color: inherit;
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--line-faint);
   cursor: pointer;
 }
 .row:hover { background: var(--surface); }

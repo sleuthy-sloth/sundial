@@ -1,0 +1,10 @@
+{
+  "desktop-plan-light": "linux-arm64/chromium-151.0.7922.34",
+  "desktop-plan-dark": "linux-arm64/chromium-151.0.7922.34",
+  "desktop-timeline-light": "linux-arm64/chromium-151.0.7922.34",
+  "phone-plan-light": "linux-arm64/chromium-151.0.7922.34",
+  "phone-empty-timeline": "linux-arm64/chromium-151.0.7922.34",
+  "phone-empty-inbox": "linux-arm64/chromium-151.0.7922.34",
+  "icon-masks": "linux-arm64/chromium-151.0.7922.34",
+  "phone-day-complete": "linux-arm64/chromium-151.0.7922.34"
+}

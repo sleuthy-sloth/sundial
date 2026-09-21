@@ -11,7 +11,15 @@ export default function Timeline({
   const gaps = freeGaps(blocks)
 
   return (
-    <div className="scroller" ref={scrollerRef}>
+    /* Focusable so a keyboard can scroll the day: a scrollable region with nothing focusable in
+       it is unreachable without a mouse. It is a real tab stop, not a trap — Tab moves on. */
+    <div
+      className="scroller"
+      ref={scrollerRef}
+      tabIndex={0}
+      role="group"
+      aria-label="The day, hour by hour"
+    >
       <div
         className="content"
         ref={contentRef}

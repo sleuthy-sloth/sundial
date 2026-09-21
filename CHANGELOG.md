@@ -1,5 +1,58 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.2.3 — 2026-09-21
+
+Focus, semantics, and a way to see a visual change before it ships.
+
+### Added
+
+- **One focus treatment for the whole app.** `:focus-visible` only, so a mouse click does not ring
+  every button anyone touches; a 2px solar ring with a 2px offset, which measures 4.3:1 against the
+  ground it is drawn on — clear of the 3:1 WCAG asks of a non-text indicator. Two capture fields
+  used to remove the outline and change their border colour instead, which is a one-pixel signal a
+  colour-blind reader cannot see at all; the border stays as a second cue and the ring is back.
+- **Automated accessibility checks** in the browser suite: axe-core over the plan in light and the
+  timeline in dark, a real tab-through that measures the ring at every stop (15 stops, minimum
+  contrast 4.3:1), and a guard that fails if `outline: none` reappears in the built stylesheet.
+- **Visual regression snapshots**: desktop in both themes, the phone plan, three empty states, and
+  the icon under its launcher masks. Baselines are committed and the diff runs in the browser, so
+  there is no image library in the toolchain.
+- **`CONTRIBUTING.md`**, and `main` is protected: both CI jobs required, force pushes and deletions
+  blocked, a pull request required of anyone who is not the owner, and linear history deliberately
+  off because the repo merges with `--no-ff`.
+
+### Changed
+
+- **A row is a container, not a control.** It was a `role="button"` with a real checkbox button
+  inside it — an interactive control nested in an interactive control, which a screen reader cannot
+  announce and which some browsers cannot reach by keyboard at all. The completion square and the
+  button that opens the editor are siblings now. Timeline blocks are real `<button>`s for the same
+  reason, which also deletes the hand-written Enter/Space handler that the browser supplies itself.
+- Every `<button>` in the app states its type, because the default is `submit`.
+
+### Fixed
+
+- **Text on a solar fill** was parchment-on-amber in the dark theme: 1.96:1, caught by axe. There is
+  an `--on-solar` token now (6.0:1), because the token for ink is not the token for ink on amber.
+- **The page had no `h1`.** The day is one now, with the date-picker button inside the heading rather
+  than a heading inside a button.
+- **The timeline was a scroll region with nothing focusable in it**: unreachable without a mouse.
+  It is a tab stop, with an inset ring so the focus is not clipped by its own box.
+
+### Notes
+
+- The "opens at the hour you are in" check asserted `scrollTop > 0`, which is false for the first
+  eighty minutes of every day: the app scrolls to half an hour ago minus 60px, so just after
+  midnight the correct position IS the top. It passed all evening and failed at 00:20 with nothing
+  wrong in the app — and the released build behaved identically, which is what proved it was the
+  check and not the code. It now computes the position the app's own rule implies.
+- `art/source/` holds the as-received copies, not the artist's masters: their own EXIF credits a
+  photo manager, i.e. they were re-encoded before they arrived. `art/source/README.md` documents
+  what that costs and what improves with a real original; `make_art.py --check` records their hashes
+  and refuses to let one be swapped quietly.
+- `VITE_APP_URL` is set at deployment in `frontend/.env.local` (gitignored), so the social tags are
+  absolute on the box that serves them while the repo stays free of that host's name.
+
 ## 0.2.2 — 2026-09-20
 
 An app icon that is geometry, in the two shapes a launcher asks for.

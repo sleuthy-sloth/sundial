@@ -11,3 +11,10 @@ backend/*.db-shm
 # calendar credentials — never commit these
 icloud.env
 google.json
+
+# a deployment's own address (VITE_APP_URL) lives here, not in the committed .env: the repo is
+# public and this box's hostname is not something to publish
+frontend/.env.local
+
+# a snapshot failure writes the shot it saw here for inspection
+frontend/e2e/baselines/*.current.png

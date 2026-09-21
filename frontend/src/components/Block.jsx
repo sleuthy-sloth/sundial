@@ -14,20 +14,16 @@ export default function Block({ block, view, isNow, selected, onPointerDown, onS
   if (compact) classes.push('compact')
 
   return (
-    <div
+    /* A real button, not a div wearing role="button": the browser then supplies Enter, Space,
+       focus and the announced role, and there is no interactive descendant to trip over (the
+       resize handle below is pointer-only and not focusable — resizing has a keyboard path in
+       the editor's length field, which is where a number is easier to change anyway). */
+    <button
+      type="button"
       className={classes.join(' ')}
       style={{ top: (shown.start_min / 60) * HOUR_PX, height }}
       onPointerDown={(e) => onPointerDown(e, 'move', block)}
       onClick={() => onSelect(block.id)}
-      onKeyDown={(e) => {
-        // A div with role="button" and a tab stop is not a button: nothing happens on
-        // Enter or Space until something happens on Enter or Space.
-        if (e.key !== 'Enter' && e.key !== ' ') return
-        e.preventDefault() // Space would otherwise scroll the timeline
-        onSelect(block.id)
-      }}
-      role="button"
-      tabIndex={0}
       aria-label={`${block.title}, ${hhmm(shown.start_min)} to ${hhmm(shown.start_min + shown.duration_min)}`}
     >
       <span className="block-time">
@@ -42,9 +38,10 @@ export default function Block({ block, view, isNow, selected, onPointerDown, onS
       </span>
       <span
         className="resize"
+        aria-hidden="true"
         onPointerDown={(e) => onPointerDown(e, 'resize', block)}
         title="Drag to change length"
       />
-    </div>
+    </button>
   )
 }
