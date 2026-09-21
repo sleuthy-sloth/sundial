@@ -45,6 +45,101 @@ const dowOf = (iso) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })
 const dayNumOf = (iso) => Number(iso.slice(8, 10))
 
+/** The calendar's own events, placed on the clock — and the blocks that have to make room.
+ *
+ * A day holds two kinds of thing and they are not the same kind. A block is yours and it moves;
+ * an appointment belongs to a calendar and it does not. Both sit at the hour their own clock
+ * says, so both are placed here — but only a block may be squeezed, and an appointment that
+ * overlaps one takes the half the block gives up rather than being drawn quietly underneath it.
+ * A faded row is how a calendar becomes unreadable while still technically being on screen.
+ *
+ * Clashing is a real overlap, not a touch. `occupied()` above merges back-to-back blocks because
+ * together they are one busy stretch; an appointment starting exactly when a block ends is not an
+ * over-booked hour. One day, two questions, two rules.
+ *
+ * `day` is the local day being looked at and it is required: guessing it from today's clock would
+ * silently place tomorrow's appointments nowhere, and a calendar that quietly disappears on the
+ * day you are planning is worse than one that is visibly absent.
+ */
+const appointments = (blocks = [], events = [], day) => {
+  const empty = { spans: [], squeezed: new Set() }
+  if (!day) return empty
+
+  const atMinute = (iso) => {
+    const at = new Date(iso)
+    if (Number.isNaN(at.getTime())) return null
+    // Measured from the local midnight of the day being looked at, so an event running in from
+    // yesterday comes out negative (and clamps) instead of landing at the wrong hour.
+    const midnight = new Date(`${day}T00:00:00`).getTime()
+    return Math.round((at.getTime() - midnight) / 60000)
+  }
+  const overlaps = (aFrom, aTo, bFrom, bTo) => aFrom < bTo && bFrom < aTo
+
+  const placed = []
+  for (const e of events) {
+    if (e.all_day) continue // no hour to sit at; the panel beside the day still lists it
+    const from = atMinute(e.start_utc)
+    const to = atMinute(e.end_utc)
+    if (from == null || to == null) continue
+    const start_min = Math.max(0, Math.min(DAY_MIN, from))
+    const end_min = Math.max(0, Math.min(DAY_MIN, to))
+    if (end_min <= start_min) continue // nothing of it lands on this day
+    placed.push({
+      key: `${e.id}@${e.start_utc}`,
+      id: e.id,
+      title: e.title ?? '',
+      calendar_ref: e.calendar_ref ?? '',
+      start_min,
+      minutes: end_min - start_min,
+      clash: false,
+      lane: 0,
+      lanes: 1,
+    })
+  }
+  placed.sort((a, b) => a.start_min - b.start_min || a.title.localeCompare(b.title))
+
+  // Which blocks have to give up half the column, and which appointments are claiming it.
+  const squeezed = new Set()
+  for (const span of placed) {
+    for (const b of blocks) {
+      if (b.start_min == null || !(b.duration_min > 0)) continue
+      if (overlaps(span.start_min, span.start_min + span.minutes, b.start_min, b.start_min + b.duration_min)) {
+        span.clash = true
+        if (b.id != null) squeezed.add(b.id)
+      }
+    }
+  }
+
+  // Two appointments clashing at once must not cover each other, so the half they share is
+  // split between them: greedy interval partitioning, which is also the fewest lanes that work.
+  const contested = placed.filter((p) => p.clash)
+  let cluster = []
+  let clusterEnd = -1
+  const flush = () => {
+    const laneEnds = []
+    for (const p of cluster) {
+      let lane = laneEnds.findIndex((end) => end <= p.start_min)
+      if (lane === -1) {
+        lane = laneEnds.length
+        laneEnds.push(0)
+      }
+      laneEnds[lane] = p.start_min + p.minutes
+      p.lane = lane
+    }
+    for (const p of cluster) p.lanes = laneEnds.length
+    cluster = []
+    clusterEnd = -1
+  }
+  for (const p of contested) {
+    if (cluster.length && p.start_min >= clusterEnd) flush()
+    cluster.push(p)
+    clusterEnd = Math.max(clusterEnd, p.start_min + p.minutes)
+  }
+  if (cluster.length) flush()
+
+  return { spans: placed, squeezed }
+}
+
 /** The stretches of the day that are spoken for, with overlaps merged.
  *
  * Comparing each block with only the one before it is not enough: a block nested
@@ -91,4 +186,5 @@ const freeGaps = (blocks, minMinutes = 45) => {
 export {
   HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay,
   weekdayName, monthName, shortDate, dowOf, dayNumOf, freeGaps, occupied, busyMinutes,
+  appointments,
 }

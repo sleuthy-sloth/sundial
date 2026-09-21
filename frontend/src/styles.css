@@ -544,6 +544,59 @@ button { cursor: pointer; }
 .block.sel { box-shadow: 0 0 0 1.5px var(--now); z-index: 3; }
 .block.current { box-shadow: inset 3px 0 0 var(--now); }
 .block.done { opacity: 0.5; }
+
+/* ---------------- the calendar inside the day ----------------
+   An appointment has to be as readable as a block while still being clearly not yours to move,
+   and those are two jobs, not one. Readability is full-ink type at the same weight as a block's
+   title; ownership is a dotted hairline where a block has a solid one, a default cursor where a
+   block says grab, and the calendar's name in the row. Fading the text would say the second
+   thing while destroying the first — which is exactly what the first sketch round did. */
+.appt {
+  position: absolute;
+  left: 3px;
+  right: 10px;
+  background: var(--surface);
+  border: 1px dotted var(--text);
+  border-left: 3px solid var(--edge);
+  border-radius: var(--r-block);
+  padding: 4px 9px;
+  cursor: default;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.appt-time,
+.appt-cal {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+.appt-title {
+  font-weight: 500; /* the block title's weight: same ink, so the same reading effort */
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.appt-cal { margin-left: auto; }
+
+/* An over-booked hour is drawn rather than labelled: the block gives up the right half so both
+   stay readable, and --lane/--lanes split that half when two appointments contest it at once. */
+.appt.clash {
+  left: calc(50% + 2px + (50% - 12px) * var(--lane, 0) / var(--lanes, 1));
+  right: calc(10px + (50% - 12px) * (var(--lanes, 1) - var(--lane, 0) - 1) / var(--lanes, 1));
+}
+.block.clash { right: calc(50% + 2px); }
+
+@media (max-width: 430px) {
+  /* A half-column on a phone cannot hold a title on one line, and a truncated title is the same
+     complaint in a new costume — so the title wraps, and the provenance gives up its space. */
+  .appt { padding: 3px 7px; }
+  .appt-title { white-space: normal; line-height: 1.2; }
+  .appt-cal { display: none; }
+}
 .block.done .block-title { text-decoration: line-through; text-decoration-color: var(--muted); }
 
 .block-time {

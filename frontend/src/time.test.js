@@ -8,10 +8,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { busyMinutes, freeGaps, occupied, shortDate } from './time.js'
+import { appointments, busyMinutes, freeGaps, occupied, shortDate } from './time.js'
 
 const at = (start, duration) => ({ start_min: start, duration_min: duration })
 const sum = (blocks) => blocks.reduce((n, b) => n + b.duration_min, 0)
+
+const DAY = '2026-09-22'
+const localISO = (h, m, day = 22) => new Date(2026, 8, day, h, m, 0).toISOString()
+const ev = (title, h, m, minutes, extra = {}) => ({
+  id: `${title}-${h}${m}`, title, calendar_ref: 'work', all_day: 0,
+  start_utc: localISO(h, m), end_utc: localISO(h, m + minutes), ...extra,
+})
+
 
 test('the day reads as an instrument would write it', () => {
   // Order is fixed; the names come from the locale, and its month abbreviations vary in
@@ -96,4 +104,112 @@ test('a block that swallows the others leaves one stretch', () => {
   assert.deepEqual(occupied(day), [{ from: 480, to: 780 }])
   assert.deepEqual(freeGaps(day, 15), [])
   assert.equal(busyMinutes(day), 300)
+})
+
+
+/* ---------------------------------------------------------------- the calendar in the day
+ *
+ * An appointment is placed by the same rule as a block — where its own clock says — and the one
+ * thing the timeline has to know is whether it collides with something planned. Clashing is
+ * deliberately NOT the rule `occupied()` uses above: back-to-back blocks are one busy stretch,
+ * but an appointment that ends exactly when a block starts is not an over-booked hour, and
+ * treating it as one would split the day in half over a coincidence of arithmetic.
+ */
+
+test('an appointment is placed where its own clock says', () => {
+  const { spans } = appointments([], [ev('Maintenance review', 10, 0, 60)], DAY)
+
+  assert.equal(spans.length, 1)
+  assert.equal(spans[0].title, 'Maintenance review')
+  assert.equal(spans[0].start_min, 600, '10:00 in local minutes')
+  assert.equal(spans[0].minutes, 60)
+  assert.equal(spans[0].clash, false, 'nothing planned, nothing to clash with')
+})
+
+test('an all-day event has no hour to sit at, so it is not placed', () => {
+  const { spans } = appointments([], [ev('Bank holiday', 0, 0, 1440, { all_day: 1 })], DAY)
+
+  assert.deepEqual(spans, [], 'an all-day event was given a row on the clock')
+})
+
+test('an appointment running in from yesterday is clamped to the start of the day', () => {
+  // 23:30 the night before, ending 00:30 today: a half hour of today, not a negative row.
+  const overnight = { id: 'o', title: 'Red-eye', calendar_ref: 'work', all_day: 0,
+    start_utc: localISO(23, 30, 21), end_utc: localISO(0, 30, 22) }
+  const { spans } = appointments([], [overnight], DAY)
+
+  assert.equal(spans[0].start_min, 0)
+  assert.equal(spans[0].minutes, 30)
+})
+
+test('an event with no length is not an appointment', () => {
+  const empty = { id: 'z', title: 'Nothing', calendar_ref: 'work', all_day: 0,
+    start_utc: localISO(9, 0), end_utc: localISO(9, 0) }
+
+  assert.deepEqual(appointments([], [empty], DAY).spans, [])
+})
+
+test('touching is not clashing', () => {
+  // 09:00-10:00 planned against an appointment starting at 10:00 sharp. occupied() merges
+  // these; the layout must not, or every hour that ends when the next begins is "over-booked".
+  const day = [at(540, 60)]
+  const { spans, squeezed } = appointments(day, [ev('Commander\'s call', 10, 0, 45)], DAY)
+
+  assert.equal(spans[0].clash, false, 'an appointment touching a block was called a clash')
+  assert.deepEqual([...squeezed], [], 'the block gave up room to nothing')
+})
+
+test('an appointment nested inside a block clashes, and the block gives up the room', () => {
+  const day = [{ id: 'deep', start_min: 570, duration_min: 150 }]  // 09:30-12:00
+  const { spans, squeezed } = appointments(day, [ev('Maintenance review', 10, 0, 60)], DAY)
+
+  assert.equal(spans[0].clash, true)
+  assert.deepEqual([...squeezed], ['deep'], 'the block that overlaps kept the whole column')
+})
+
+test('a partial overlap clashes too', () => {
+  const day = [{ id: 'pt', start_min: 390, duration_min: 60 }]  // 06:30-07:30
+  const { spans, squeezed } = appointments(day, [ev('Dental', 7, 0, 45)], DAY)
+
+  assert.equal(spans[0].clash, true)
+  assert.deepEqual([...squeezed], ['pt'])
+})
+
+test('blocks the calendar never touches keep the whole column', () => {
+  const day = [{ id: 'a', start_min: 390, duration_min: 60 }, { id: 'b', start_min: 840, duration_min: 60 }]
+  const { squeezed } = appointments(day, [ev('Dinner', 18, 15, 60)], DAY)
+
+  assert.deepEqual([...squeezed], [], 'a block nowhere near the appointment was squeezed')
+})
+
+test('two clashing appointments share the free half instead of covering each other', () => {
+  const day = [{ id: 'deep', start_min: 570, duration_min: 150 }]
+  const { spans } = appointments(day, [ev('Review', 10, 0, 60), ev('Call', 10, 30, 30)], DAY)
+
+  assert.deepEqual(spans.map((s) => s.clash), [true, true])
+  assert.deepEqual(spans.map((s) => s.lane).sort(), [0, 1], 'two appointments landed on one lane')
+  assert.deepEqual(spans.map((s) => s.lanes), [2, 2], 'the half was not shared between them')
+})
+
+test('one appointment in the free half needs no sharing', () => {
+  const day = [{ id: 'deep', start_min: 570, duration_min: 150 }]
+  const { spans } = appointments(day, [ev('Review', 10, 0, 60)], DAY)
+
+  assert.equal(spans[0].lanes, 1)
+  assert.equal(spans[0].lane, 0)
+})
+
+test('an appointment outside the day entirely is dropped, not drawn off the end', () => {
+  const other = { id: 'x', title: 'Next week', calendar_ref: 'work', all_day: 0,
+    start_utc: localISO(9, 0, 25), end_utc: localISO(10, 0, 25) }
+  const { spans } = appointments([], [other], DAY)
+
+  assert.deepEqual(spans, [], 'an appointment on another day was drawn on this one')
+})
+
+test('a day with no calendar has no appointments and squeezes nothing', () => {
+  const { spans, squeezed } = appointments([at(540, 60)], [], DAY)
+
+  assert.deepEqual(spans, [])
+  assert.deepEqual([...squeezed], [])
 })

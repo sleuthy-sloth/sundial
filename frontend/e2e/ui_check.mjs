@@ -314,7 +314,7 @@ const boxOf = async (text) => {
       (await page.locator('.content').boundingBox()).x + (await page.locator('.content').boundingBox()).width / 2,
       spot.y,
     )
-    await page.waitForTimeout(400)
+    await until(async () => (await blocksOn(today)).filter((b) => !beforeIds.has(b.id)).length === 1)
     const created = (await blocksOn(today)).filter((b) => !beforeIds.has(b.id))
     check('double-click adds one block', created.length === 1, `${created.length} new`)
     // Within a snap step: the click is a pixel and the answer is a quarter hour, so a
@@ -331,6 +331,12 @@ const boxOf = async (text) => {
 
 // ---- double-click on an existing block must NOT create one ----
 {
+  // The app writes through a queue, so a block can still be in flight when the ids below are
+  // taken — and it would then be counted as the one this check asserts was not created. The
+  // header of this file says polling beats betting on the machine; this check still used a
+  // fixed 400ms wait, which held until the run in front of it got longer. Wait for the API and
+  // the DOM to agree instead.
+  await until(async () => (await blocksOn(today)).length === (await page.locator('.content .block').count()))
   const beforeIds = new Set((await blocksOn(today)).map((b) => b.id))
   const box = await boxOf('ui-check walk')
   await page.mouse.dblclick(box.x + box.width / 2, box.y + 18)
@@ -641,6 +647,133 @@ const boxOf = async (text) => {
   // resource error. Those are the check's own doing, so they are taken back out —
   // anything the page threw by itself still counts.
   consoleErrors.splice(errorsBefore, consoleErrors.length - errorsBefore)
+}
+
+// ---- the calendar inside the day ----
+// The /api/events shape is pinned by the backend tests; what is unverified until here is the
+// drawing, so the response is mocked. The day and the blocks are seeded inside this block rather
+// than borrowed from earlier in the run: other checks move and delete blocks, and a section that
+// assumed them would pass or fail depending on where in the file it sat.
+{
+  const DAY = EMPTY_DAY
+  const pad = (n) => String(n).padStart(2, '0')
+  const localISO = (h, m) => new Date(`${DAY}T${pad(h)}:${pad(m)}:00`).toISOString()
+  const ev = (id, title, from, to, extra = {}) => ({
+    id, title, calendar_ref: 'work', all_day: 0,
+    start_utc: localISO(...from), end_utc: localISO(...to), ...extra,
+  })
+
+  await spawn({ title: 'ui-check deep', day: DAY, start_min: 600, duration_min: 120, color: 'violet' })
+  await spawn({ title: 'ui-check pt', day: DAY, start_min: 420, duration_min: 60, color: 'emerald' })
+  await spawn({ title: 'ui-check far', day: DAY, start_min: 840, duration_min: 30, color: 'amber' })
+
+  const mocked = [
+    ev('e1', 'ui-check review', [10, 15], [11, 0]),   // inside the 10:00 block
+    ev('e2', 'ui-check call', [10, 30], [11, 0]),     // and overlapping e1: the half must be shared
+    ev('e3', 'ui-check dental', [6, 45], [7, 15]),    // partial overlap with the 07:00 block
+    ev('e4', 'ui-check dinner', [21, 0], [22, 0]),    // nothing planned: the half, whole
+    ev('e5', 'ui-check allday', [0, 0], [0, 0], { all_day: 1 }),
+    ev('e6', 'ui-check nothing', [12, 0], [12, 0]),
+  ]
+  await page.route('**/api/events*', (route) => route.fulfill({ json: { day: DAY, count: mocked.length, events: mocked } }))
+  await page.fill('.day-head input[type="date"]', DAY)
+  await until(async () => (await page.locator('.appt').count()) === 4)
+  await page.waitForTimeout(200)
+
+  const drawn = await page.locator('.appt').count()
+  check('the day draws the appointments that have an hour', drawn === 4, `${drawn} drawn from six events`)
+  check('an all-day event and a zero-length one are not rows on the clock',
+    !(await page.locator('.appt').allInnerTexts()).some((t) => /allday|nothing/i.test(t)))
+
+  const ink = await page.evaluate(() => ({
+    appt: getComputedStyle(document.querySelector('.appt-title')).color,
+    block: getComputedStyle(document.querySelector('.block-title')).color,
+    weight: getComputedStyle(document.querySelector('.appt-title')).fontWeight,
+  }))
+  check('an appointment reads in the same ink as the plan', ink.appt === ink.block, `${ink.appt} vs ${ink.block}`)
+  check('and at the same weight, not lightened to look "not mine"', ink.weight === '500', ink.weight)
+
+  const titles = await page.evaluate(() => {
+    const out = []
+    document.querySelectorAll('.appt').forEach((a) => {
+      const t = a.querySelector('.appt-title')
+      t.scrollIntoView({ block: 'center' })
+      const r = t.getBoundingClientRect()
+      const hit = document.elementFromPoint(Math.round(r.left + Math.min(24, r.width / 2)), Math.round(r.top + r.height / 2))
+      out.push({ text: t.textContent, clipped: t.scrollWidth > t.clientWidth + 1, onTop: !!hit && a.contains(hit) })
+    })
+    return out
+  })
+  check('every appointment title is the thing on top at its own centre',
+    titles.every((t) => t.onTop), titles.filter((t) => !t.onTop).map((t) => t.text).join(', ') || 'all four')
+  check('and none of them is truncated', titles.every((t) => !t.clipped),
+    titles.filter((t) => t.clipped).map((t) => t.text).join(', ') || 'none')
+
+  const clash = await page.evaluate(() => {
+    // Two rectangles overlap only if they overlap in BOTH axes: comparing horizontal extents
+    // alone calls two appointments hours apart "covering" each other, because they legitimately
+    // share the same band of the column.
+    const box = (el) => {
+      const r = el.getBoundingClientRect()
+      return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) }
+    }
+    const colWidth = box(document.querySelector('.content')).w
+    const byEvent = (id) => document.querySelector(`.appt[data-event="${id}"]`)
+    const blocks = [...document.querySelectorAll('.block.clash')].map((el) => ({ ...box(el), text: el.textContent }))
+    const appts = [...document.querySelectorAll('.appt.clash')].map((el) => ({ ...box(el), text: el.textContent }))
+    const overlaps = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b
+    const cross = []
+    for (const b of blocks) for (const a of appts) if (overlaps(a, b)) cross.push(`${b.text.slice(0, 12)} / ${a.text.slice(0, 12)}`)
+    const alone = box(byEvent('e3'))
+    const ones = [box(byEvent('e1')), box(byEvent('e2'))]
+    return {
+      blocks: blocks.length, appts: appts.length, cross, colWidth,
+      aloneShare: alone.w / colWidth,
+      contest: ones.map((o) => ({ w: o.w, l: o.l })),
+      contestOverlap: overlaps(ones[0], ones[1]),
+    }
+  })
+  check('the blocks that share an hour with the calendar give up half the column', clash.blocks === 2, `${clash.blocks} squeezed`)
+  check('and the squeezed block and the appointment sit beside each other, not on top',
+    clash.cross.length === 0, clash.cross.join(' ') || 'no overlap')
+  check('an appointment with the free half to itself takes it',
+    clash.aloneShare >= 0.4, `${Math.round(clash.aloneShare * 100)}% of the column`)
+  check('and two contesting it still each hold a readable width',
+    clash.contest.every((c) => c.w >= 120), `${clash.contest.map((c) => c.w).join('px, ')}px of ${clash.colWidth}px`)
+  check('sharing that half at different offsets, not the same one',
+    new Set(clash.contest.map((c) => c.l)).size === clash.contest.length,
+    `${clash.contest.map((c) => c.l).join(', ')}`)
+  check('so two appointments contesting the same hour do not cover each other',
+    !clash.contestOverlap, clash.contestOverlap ? 'they overlap' : 'clear')
+
+  // --- the phone, which is where a half-width card loses its title
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(250)
+  const phone = await page.evaluate(() => {
+    const out = { clipped: [], overflow: 0 }
+    document.querySelectorAll('.appt-title').forEach((t) => { if (t.scrollWidth > t.clientWidth + 1) out.clipped.push(t.textContent) })
+    document.querySelectorAll('*').forEach((el) => { const r = el.getBoundingClientRect(); if (r.width > 0 && r.right > window.innerWidth + 1) out.overflow += 1 })
+    return out
+  })
+  check('on a phone the titles wrap instead of being cut off', phone.clipped.length === 0, phone.clipped.join(', ') || 'none clipped')
+  check('and nothing is pushed off the side of the screen', phone.overflow === 0, `${phone.overflow} elements overflow`)
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  // --- an answer for a day you are not looking at must not be drawn on this one
+  await page.route('**/api/events*', (route) => route.fulfill({ json: { day: '1999-01-01', count: mocked.length, events: mocked } }))
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForTimeout(300)
+  check('an answer for another day is not drawn on this one', (await page.locator('.appt').count()) === 0)
+
+  // --- and with no calendar at all, nothing appears and no block is squeezed for it
+  await page.unroute('**/api/events*')
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForTimeout(300)
+  check('with no calendar there are no appointments, and no block is squeezed for them',
+    (await page.locator('.appt').count()) === 0 && (await page.locator('.block.clash').count()) === 0,
+    `${await page.locator('.block').count()} blocks still full width`)
+  await page.fill('.day-head input[type="date"]', today)
+  await page.waitForTimeout(400)
 }
 
 // ---- keyboard, a cancelled gesture, and the end of the day ----
