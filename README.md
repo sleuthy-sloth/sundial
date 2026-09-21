@@ -27,7 +27,9 @@ calendar among them, rather than in a column beside your day.
 with a count and the span it actually covers. Rows sit on hairlines with the time in the
 gutter: a slim colour edge, the title, how long it takes, and a square to fill when it is
 done. Adding to a section puts the task *after* whatever is already in that part of the
-day rather than on top of it. Anytime is the inbox.
+day rather than on top of it. Anytime is the inbox. At the top of the plan, one line says
+what is running right now and how long is left of it, or what is next when nothing is —
+that being the question you open a planner to ask.
 
 **Day** — the clock: a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
 the length, double-click empty space for a short block. Above 780px the rail returns beside it,
@@ -44,8 +46,8 @@ length, start time, done and delete. An emoji still earns its place on a timelin
 where it helps you find one at a glance.
 
 Install it to your phone's home screen from Safari or Chrome — it is a real PWA, with an
-offline shell. The service worker already handles a push notification; nothing sends one
-yet, and nothing can until a sending side exists.
+offline shell. It sends its own notifications: one at the hour a block begins, and nothing
+else — no reminders, no summary, and no count of what you did not get to.
 
 ### The house rules
 
@@ -198,7 +200,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           340 tests
+backend/test_*.py           326 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -209,7 +211,7 @@ frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox,
                             Profile, Glyph, LedgerArt, CalendarPanel, Notifications, Switch,
                             YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   219 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   226 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -219,7 +221,6 @@ frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 frontend/src/datafile.js    what the export panel may say about a file before using it
 scripts/backup.py           copy the database safely, and put a copy back
-scripts/cadu_card.py        today's plan as a rich card payload, as JSON on stdout
 deploy/sundial.service      systemd user unit
 ```
 
@@ -340,9 +341,9 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 340 tests
-cd frontend && npm test                                # 78 unit tests, node --test
-cd frontend && npm run check:ui                        # 219 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 326 tests
+cd frontend && npm test                                # 91 unit tests, node --test
+cd frontend && npm run check:ui                        # 226 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -371,26 +372,6 @@ and run the shooter. It refuses to run against a database that already has plans
 SUNDIAL_DB=/tmp/shots.db PORT=6771 bash run.sh &
 cd frontend && npm run shots
 ```
-
-## The day as a card
-
-`scripts/cadu_card.py` prints today's plan as a rich-card payload: a checklist of the day's
-blocks, with what is now and what is next in the summary.
-
-```
-python3 scripts/cadu_card.py --pretty
-```
-
-It reads the API rather than the database, so it can run from anywhere the app answers and
-cannot disagree with what the day view shows. `--day`, `--url` and `--at` cover another day,
-another copy, and another hour.
-
-It is written for Cadu, the iOS client that renders cards like this, and the payload is plain
-JSON, so any surface with a checklist can take it. Two things it will not fake: `completed`
-comes from a block's own done flag and never from the clock, because a block whose hour has
-passed is not a block that happened; and since ticking an item in the client is kept on the
-phone and never sent back, the card says so in its own summary rather than letting you believe
-you have changed your plan.
 
 ## Deploying
 

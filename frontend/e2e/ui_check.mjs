@@ -1993,6 +1993,73 @@ const wantThemeLight = async () => {
   await req(`/blocks/${walk.id}`, { method: 'DELETE' }).catch(() => {})
 }
 
+// ---- what is happening now ----------------------------------------------------------------
+// The glance is the answer to the question you open a planner to ask, so it is checked against a
+// block that is genuinely in progress: seeded at the current minute, because a block at a fixed
+// hour is only "now" if this run happens to fall inside it. Expectations still come from the API,
+// and the section removes what it seeded before the snapshots — a block left behind on today is
+// what broke the finished-day shot the last time a section was added here.
+//
+// The lead reads NOW/NEXT in innerText because CSS uppercases it, so these match case-insensitively.
+{
+  const twoDigit = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  const clock = new Date()
+  const nowMin = clock.getHours() * 60 + clock.getMinutes()
+  const dateBox = '.day-head input[type="date"]'
+  const line = async () => (await textOf('.glance')).replace(/\s+/g, ' ').trim()
+
+  await page.locator('.tabs button[data-tab="today"]').click()
+
+  // Starts twenty minutes ago and runs two hours: "now" is inside it whatever the minute, and a
+  // slow run cannot outlive it.
+  const running = await spawn({
+    title: 'ui-check running', day: today,
+    start_min: Math.max(0, nowMin - 20), duration_min: 120,
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+
+  const appeared = await until(async () => (await page.locator('.glance.is-now').count()) === 1)
+  const now = await line()
+  check('the plan says what is running, and how long is left of it', Boolean(appeared), now || 'no glance line')
+  check('and it is the block that is actually running', now.includes('ui-check running'), now)
+  check('and it counts down rather than restating the start',
+    /^now\b/i.test(now) && /until \d{2}:\d{2}/.test(now) && /left/.test(now), now)
+
+  // Take it away: with nothing running, the line names what is next rather than going blank.
+  await req(`/blocks/${running.id}`, { method: 'DELETE' })
+  const coming = await spawn({
+    title: 'ui-check coming', day: today,
+    start_min: Math.min(23 * 60 + 30, nowMin + 90), duration_min: 30,
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+
+  const ahead = await until(async () => (await page.locator('.glance.is-next').count()) === 1)
+  const next = await line()
+  check('with nothing running it names what is next instead', Boolean(ahead), next || '(nothing)')
+  check('and says when that starts',
+    /^next\b/i.test(next) && next.includes(`at ${twoDigit(coming.start_min)}`), next)
+
+  // Nothing to say on a day that is not today: "now" would be a claim about an hour that has not
+  // happened yet.
+  await page.fill(dateBox, '')
+  await page.fill(dateBox, EMPTY_DAY)
+  await until(async () => (await page.locator(dateBox).inputValue()) === EMPTY_DAY)
+  const silent = await until(async () => (await page.locator('.glance').count()) === 0)
+  check('and stays silent on a day that is not today', Boolean(silent),
+    `${await page.locator('.glance').count()} line(s) on ${EMPTY_DAY}`)
+
+  // Back to today, and leave today as it was found.
+  await page.fill(dateBox, '')
+  await page.fill(dateBox, today)
+  await until(async () => (await page.locator(dateBox).inputValue()) === today)
+  await req(`/blocks/${coming.id}`, { method: 'DELETE' })
+  await page.reload({ waitUntil: 'networkidle' })
+  const mine = ['ui-check running', 'ui-check coming']
+  const leftover = (await req(`/day?day=${today}`)).blocks.filter((b) => mine.includes(b.title))
+  check('and cleans up after itself', leftover.length === 0,
+    leftover.length ? `${leftover.length} of its blocks left on today` : 'today is as it was')
+}
+
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop
 // in both themes, the three empty states, and the icon under its launcher masks. Baselines are
@@ -2012,6 +2079,14 @@ const wantThemeLight = async () => {
   // change to a few rows.
   const MAX_MEAN = 0.5
   const MAX_FAR_PCT = 0.8
+
+  // Pin the clock before anything is shot, because two things in these pictures are otherwise a
+  // function of when the run started: the timeline's now line, which drifts with the hour and
+  // passed only because a 1.5px rule stays under the noise threshold, and the glance, which says
+  // what is running and counts it down. At 11:00 the little seeded day has its 10:30 block in
+  // progress, so the glance is present and identical every time. Timers keep running — only the
+  // date is fixed — so the app still refreshes itself on its own cadence.
+  await page.clock.setFixedTime(new Date(`${today}T11:00:00`))
 
   const shoot = async (name, prepare) => {
     await prepare()

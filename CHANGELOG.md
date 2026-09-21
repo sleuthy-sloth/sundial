@@ -1,5 +1,40 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.10.1 — 2026-09-21
+
+**The glance is in the app, not in somebody else's.** 0.10.0 shipped today's plan as a rich-card
+payload for Cadu, an iOS client that draws cards like that. It was the wrong home for it: sundial
+is a public planner, and a feature that only works if you also install a second app is not a
+feature this repo should be carrying. The card script and its tests are gone. Whatever they were
+for now lives where the day already is.
+
+What they were for was knowing what you are supposed to be doing without reading a list, and the
+plan says it in one line at the top of Today:
+
+    NOW   Write the thing    until 10:30 · 30m left
+    NEXT  Standup            at 11:30 · in 1h
+
+- **On any other day it says nothing at all.** There, the same sentence would be a claim about an
+  hour that has not happened yet. It is absent on an empty day and on a finished one too: the
+  sections below already show what is left, and the all-clear already owns "you are done".
+- **"Now" is the block's own half-open interval** — current at its starting minute, over at its
+  ending minute, the rule the timeline draws with. A ticked-off block is out of the running:
+  "now" pointing at work you have finished is a small lie the app does not need to tell.
+- **Untimed work is never it.** Anytime has no hour to be in, and pretending it does would turn
+  the inbox into a claim about what you are doing.
+- **It borrows the timeline's "now" treatment** rather than inventing a second one: a solar fill
+  with ink on it, measured at 5.36:1 light and 6.47:1 dark. The amber mark itself measures 4.22:1
+  on `--surface-2`, so the word is a fill and the meta text is `--muted`, 4.56:1 and 5.66:1.
+- **The snapshots now pin the clock.** The glance counts down, so it could never be a stable
+  picture — and the timeline's now line was already drifting with the hour, passing only because a
+  1.5px rule stays under the noise threshold. The shots run at a fixed 11:00, where the seeded day
+  has a block in progress.
+
+Also fixed: the README said nothing could send a notification, which stopped being true when
+notifications shipped.
+
+Counts: 326 backend tests, 91 unit, 226 browser checks.
+
 ## 0.10.0 — 2026-09-21
 
 Two ways out, and a glance for the phone.
