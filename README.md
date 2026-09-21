@@ -136,6 +136,26 @@ env -u PYTHONPATH backend/.venv/bin/python scripts/make_icons.py         # the i
 The social card is `frontend/public/brand/sundial-og.jpg` (1200x630) and the banner at the top
 of this file is that directory's `sundial-readme-banner.webp` (2560x320).
 
+### The app icon
+
+Drawn, not traced: the dial, its twelve hour ticks, the triangular gnomon, the pedestal it stands
+on and the amber shadow that gnomon casts are all geometry, and every number is a fraction of the
+dial's radius measured off the reference. Nothing here carries a JPEG artefact, and the colours
+are read out of `styles.css`, so the icon cannot drift from the ledger it belongs to.
+
+It is generated in two layouts, because a launcher picks the shape rather than asking:
+
+- **`standard`** — the dial at 78% of the canvas: 32, 48, 180, 192 and 512px, the apple-touch
+  icon, and `favicon.svg`, which is the same geometry as vector.
+- **`maskable`** — the dial at 70%, so the whole ring and every other element sit inside the
+  central safe circle with charcoal still reaching every edge. Android may keep as little as the
+  middle 70% of a maskable icon; at 78% it would take the edge of the ring.
+
+`--check` measures where the ink actually ends in both layouts rather than trusting the geometry
+to have worked out, and CI runs it. The vector and the raster are compared against each other in
+the browser suite too: a browser paints the SVG and Pillow draws the PNGs, and two renderers can
+drift apart without either looking wrong on its own.
+
 **Link previews need one setting.** The app writes the card into its own `og:` and `twitter:`
 tags, but with no host set those stay relative: a visitor's browser resolves them and a crawler
 will not. Set `VITE_APP_URL` in `frontend/.env` to your own address and rebuild. There is no
@@ -154,7 +174,7 @@ backend/spa.py              serving the built app, and how long each file may be
 backend/test_*.py           82 tests
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
-scripts/make_icons.py       the app icon and the favicon, drawn from the stylesheet's tokens
+scripts/make_icons.py       the app icon and favicon: measured geometry, two layouts
 frontend/src/App.jsx        state and layout only
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,

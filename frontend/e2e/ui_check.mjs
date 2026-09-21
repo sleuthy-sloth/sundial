@@ -1118,7 +1118,10 @@ const boxOf = async (text) => {
     check('a large card, so the picture is the preview', card?.card === 'summary_large_image', String(card?.card))
 
     const icons = await page.evaluate(async () => {
-      const paths = ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-maskable-512.png']
+      const paths = [
+        '/favicon.svg', '/icon-32.png', '/icon-48.png', '/icon-180.png', '/icon-192.png',
+        '/icon-512.png', '/apple-touch-icon.png', '/icon-maskable-192.png', '/icon-maskable-512.png',
+      ]
       const out = {}
       for (const p of paths) out[p] = (await fetch(p)).status
       const manifest = await (await fetch('/manifest.webmanifest')).json()
@@ -1133,6 +1136,46 @@ const boxOf = async (text) => {
       'and the maskable ones are the padded files, not the plain icons',
       icons.maskable.length === 2 && icons.maskable.every((s) => s.includes('maskable')),
       icons.maskable.join(' '),
+    )
+
+    // The favicon and the PNGs are drawn by two different renderers — a browser paints the SVG,
+    // Pillow draws the PNGs — so they can drift apart without either looking wrong on its own.
+    // Rasterise both and compare: the same mark should come out either way.
+    const agree = await page.evaluate(async () => {
+      // An <img>, not createImageBitmap: that call cannot decode an SVG blob, and a failed
+      // decode here used to throw out of the whole run instead of failing one check.
+      const load = async (url, size) => {
+        const img = new Image()
+        await new Promise((resolve, reject) => {
+          img.onload = resolve
+          img.onerror = () => reject(new Error(`could not load ${url}`))
+          img.src = url
+        })
+        const ctx = new OffscreenCanvas(size, size).getContext('2d')
+        ctx.drawImage(img, 0, 0, size, size)
+        return ctx.getImageData(0, 0, size, size).data
+      }
+      try {
+        const size = 128
+        const [a, b] = await Promise.all([load('/favicon.svg', size), load('/icon-512.png', size)])
+        let sum = 0
+        let far = 0
+        for (let i = 0; i < a.length; i += 4) {
+          const d =
+            (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2])) / 3
+          sum += d
+          if (d > 40) far++
+        }
+        const n = a.length / 4
+        return { mean: sum / n, farPct: (far / n) * 100 }
+      } catch (err) {
+        return { mean: NaN, farPct: NaN, error: String(err) }
+      }
+    })
+    check(
+      'the vector favicon and the raster icon are the same mark',
+      !agree.error && agree.mean < 6 && agree.farPct < 6,
+      agree.error || `mean ${agree.mean.toFixed(2)}/255, ${agree.farPct.toFixed(2)}% differing`,
     )
 
     const shell = await page.evaluate(async () => (await fetch('/')).text())

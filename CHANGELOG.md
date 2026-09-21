@@ -1,5 +1,32 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.2.2 — 2026-09-20
+
+An app icon that is geometry, in the two shapes a launcher asks for.
+
+### Changed
+
+- **The icon is redrawn from the reference as clean vector geometry**: the ring, twelve hour
+  ticks, the triangular gnomon, the trapezoidal pedestal it stands on, and the amber wedge the
+  gnomon casts. Every measurement is a fraction of the dial's radius, so nothing is traced and
+  nothing carries a JPEG artefact.
+- **Two layouts.** `standard` puts the dial at 78% of the canvas (32, 48, 180, 192 and 512px, the
+  apple-touch icon, and `favicon.svg`); `maskable` puts it at 70% so Android's crop cannot reach
+  the ring, with charcoal still solid to every edge. Before, one inset served both jobs: the mark
+  was small in a favicon and still only just inside a round mask.
+- The favicon is the mark as vector, and the manifest now declares every size it ships.
+
+### Verified, not assumed
+
+- `--check` measures where the ink actually ends in each layout and fails if it leaves the safe
+  circle — falsified by drawing the maskable at 78%, which it caught.
+- The maskable file is previewed under a circle, a squircle, a rounded square and two Android
+  adaptive masks before being committed (`docs/screenshots/art/icon-masks.png`). The standard file
+  under the same masks shows what the wrong layout costs: a round mask takes its ring.
+- A browser check rasterises `favicon.svg` and `icon-512.png` and compares them, because a
+  browser paints one and Pillow draws the other, and two renderers can drift apart without either
+  looking wrong alone.
+
 ## 0.2.1 — 2026-09-20
 
 Illustrations, and the things a link to this needs.
