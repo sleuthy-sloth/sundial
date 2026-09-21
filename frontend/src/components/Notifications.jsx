@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { availability, current, disable, enable, explain } from '../push'
+import { availability, current, disable, enable, explain, testResultMessage } from '../push'
 import Switch from './Switch'
 
 /**
@@ -80,11 +80,7 @@ export default function Notifications() {
     setNote('')
     try {
       const result = await api.testPush()
-      setNote(
-        result.sent
-          ? 'Sent. If nothing arrived, check your phone\u2019s notification settings.'
-          : 'Nothing to send to \u2014 no device is subscribed.',
-      )
+      setNote(testResultMessage(result))
     } catch (err) {
       setNote(err.message)
     } finally {

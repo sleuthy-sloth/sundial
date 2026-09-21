@@ -55,6 +55,29 @@ export function explain(state) {
   return ''
 }
 
+/**
+ * What to say after "Send one now".
+ *
+ * Three outcomes look identical from the button and are not: nothing was sent because nobody is
+ * subscribed, nothing was sent because the push service refused it, and it was sent. Collapsing
+ * the middle one into the first is what a panel does when it only reads `sent`, and it sends you
+ * looking in the wrong place — the subscription was fine, the delivery was not. That happened
+ * here: a valid Apple subscription was reported as "no device is subscribed" while Apple was
+ * answering 403 BadJwtToken, so the one sentence that could have explained it was thrown away.
+ */
+export function testResultMessage(result) {
+  if (result.sent > 0) {
+    return 'Sent. If nothing arrived, check your phone\u2019s notification settings.'
+  }
+  if (!result.subscribers) {
+    return 'No device is subscribed yet \u2014 turn the switch on above.'
+  }
+  const reason = result.failed?.[0]?.error
+  return reason
+    ? `The push service refused it: ${reason}`
+    : 'The push service refused it, and did not say why.'
+}
+
 /** The subscription this browser already has, or null. Used to render the on/off state. */
 export async function current(scope = globalThis) {
   const registration = await scope.navigator?.serviceWorker?.ready

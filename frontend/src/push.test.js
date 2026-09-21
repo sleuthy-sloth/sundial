@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { availability, current, disable, enable, explain, keyBytes } from './push.js'
+import { availability, current, disable, enable, explain, keyBytes, testResultMessage } from './push.js'
 
 /** A browser that says yes to everything, recording what it was asked. */
 function scope(over = {}) {
@@ -213,4 +213,36 @@ test('disabling when nothing was subscribed does nothing and says so', async () 
 test('the current subscription is what renders the on/off state', async () => {
   const { scope: s } = scope()
   assert.equal(await current(s), null)
+})
+
+// ---- what "Send one now" comes back saying ------------------------------------------------
+// A delivery failure and an empty subscriber list are different problems with different fixes,
+// and the panel used to report the first as the second. Apple refused a perfectly good
+// subscription with 403 BadJwtToken while the panel said "no device is subscribed", which sent
+// the reader looking at their phone instead of at the subject claim.
+
+test('a send that worked says so', () => {
+  assert.match(testResultMessage({ subscribers: 1, sent: 1, failed: [] }), /^Sent\./)
+})
+
+test('a send with nobody subscribed names that, and not the delivery', () => {
+  const said = testResultMessage({ subscribers: 0, sent: 0, failed: [] })
+  assert.match(said, /No device is subscribed/)
+})
+
+test('a refusal from the push service is reported as a refusal, with the reason', () => {
+  const said = testResultMessage({
+    subscribers: 1,
+    sent: 0,
+    failed: [{ endpoint: 'https://push.example/x', error: 'WebPushException: 403 BadJwtToken' }],
+  })
+  assert.match(said, /refused/)
+  assert.match(said, /BadJwtToken/, 'the reason is the whole value of the sentence')
+  assert.doesNotMatch(said, /No device is subscribed/, 'a device WAS subscribed')
+})
+
+test('a refusal with no reason still does not blame the subscriber', () => {
+  const said = testResultMessage({ subscribers: 1, sent: 0, failed: [{}] })
+  assert.doesNotMatch(said, /No device is subscribed/)
+  assert.match(said, /refused/)
 })

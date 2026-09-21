@@ -60,7 +60,14 @@ ROOT = Path(__file__).resolve().parent
 # must-not-commit files in, and a second directory to remember is a second directory to get
 # wrong — the gitignore entry for it belongs in the same block as theirs.
 DEFAULT_VAPID = ROOT.parent / "vapid.env"
-DEFAULT_SUBJECT = "mailto:sundial@localhost"
+
+# The contact address every push service is handed, and the one claim they validate. Apple
+# rejects `mailto:sundial@localhost` with `403 BadJwtToken` — a reserved name is not somewhere it
+# believes an operator can be reached — and nothing local reveals that: the identity is valid,
+# the subscription is valid, the request is well-formed, and only Apple's answer disagrees. So
+# the default is a domain that is merely plausible, and an install that wants to be reachable
+# should set SUNDIAL_VAPID_SUBJECT to an address a person actually reads.
+DEFAULT_SUBJECT = "mailto:sundial@example.com"
 VAPID_HEADER = (
     "# Written by sundial the first time something needed to be notified. This is the",
     "# identity a push service checks before it believes a notification came from this copy",
@@ -73,6 +80,15 @@ VAPID_HEADER = (
 def vapid_path() -> Path:
     """Where the identity lives. Overridable so a test never touches the real one."""
     return Path(os.environ.get("SUNDIAL_VAPID_ENV", DEFAULT_VAPID))
+
+
+def subject_claim() -> str:
+    """The contact claim: the environment's answer, or the default.
+
+    One home for it, because two copies of a lookup are two chances for the tick and the test
+    button to be sending as different operators.
+    """
+    return os.environ.get("SUNDIAL_VAPID_SUBJECT", DEFAULT_SUBJECT)
 
 
 def _public_key(vapid: Vapid02) -> str:
@@ -305,7 +321,7 @@ def tick(
         return summary
 
     key = identity or load_vapid()
-    claims = {"sub": subject or os.environ.get("SUNDIAL_VAPID_SUBJECT", DEFAULT_SUBJECT)}
+    claims = {"sub": subject or subject_claim()}
 
     for block in blocks:
         accepted, gone, bad = _deliver(subscriptions, json.dumps(payload(block)), key, claims, pusher)
@@ -346,7 +362,7 @@ def nudge(
         return {"subscribers": 0, "sent": 0, "expired": [], "failed": []}
 
     key = identity or load_vapid()
-    claims = {"sub": subject or os.environ.get("SUNDIAL_VAPID_SUBJECT", DEFAULT_SUBJECT)}
+    claims = {"sub": subject or subject_claim()}
     body = json.dumps(
         {
             "title": "sundial",

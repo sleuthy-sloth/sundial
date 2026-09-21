@@ -449,6 +449,20 @@ def test_the_test_button_admits_when_nobody_is_subscribed(client):
     assert body["sent"] == 0
 
 
+def test_the_default_subject_is_a_domain_a_push_service_will_believe():
+    # Apple answers 403 BadJwtToken for `mailto:sundial@localhost`. Nothing local exposes that,
+    # so the guard has to be on the value itself: a reserved name is not a domain a push
+    # service will accept as a way to reach the operator.
+    assert push.DEFAULT_SUBJECT.startswith("mailto:")
+    domain = push.DEFAULT_SUBJECT.split("@", 1)[1]
+    assert "localhost" not in domain and "." in domain, push.DEFAULT_SUBJECT
+
+
+def test_the_subject_can_be_overridden_for_a_real_deployment(monkeypatch):
+    monkeypatch.setenv("SUNDIAL_VAPID_SUBJECT", "mailto:someone@real.example")
+    assert push.subject_claim() == "mailto:someone@real.example"
+
+
 def test_the_identity_lives_beside_the_calendar_credentials():
     # One directory holds the files a deployment must not commit. This file is one of them,
     # and a second directory to remember would be a second directory to get wrong.

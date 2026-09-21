@@ -1,5 +1,30 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.9.1 — 2026-09-21
+
+Notifications were being refused by Apple, and the app was saying the wrong thing about why. Both
+halves of that needed fixing, and only a real phone could reveal either.
+
+- **The contact claim is validated, and a reserved name is not a domain.** Every push service is
+  handed a `sub` claim naming who to contact about the sender. It shipped as
+  `mailto:sundial@localhost`, and Apple answers that with `403 BadJwtToken` — not because the
+  identity was wrong, or the subscription, or the request, all of which were valid, but because
+  `localhost` is not somewhere it believes an operator can be reached. The default is now a
+  merely plausible domain, overridable with `SUNDIAL_VAPID_SUBJECT`, and a test guards the value
+  itself, because nothing local exposes the problem: the failure lives entirely in the push
+  service's answer.
+- **"No device is subscribed" was a lie the panel told.** `Send one now` read only the count of
+  what was sent, so a refused delivery and an empty subscriber list produced the same sentence. A
+  valid Apple subscription was reported as nobody being subscribed while Apple was refusing every
+  attempt — which is the one sentence that could have pointed at the cause, thrown away. There
+  are three outcomes now, said separately, and the refusal carries the push service's own reason.
+
+Both were invisible from this side: 304 backend tests passed, the subscription was stored
+correctly, every request was well-formed, and Apple returned 200 to nothing. The first send that
+worked returned `sent: 1, failed: []` only after the claim changed, and the four new frontend
+tests pin the distinction between a refusal and an absence — including that a refusal never again
+says nobody is subscribed.
+
 ## 0.9.0 — 2026-09-21
 
 The app had two things you turn on and off, and both of them were buttons that described what
