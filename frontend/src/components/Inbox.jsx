@@ -1,4 +1,5 @@
 import { durText } from '../time'
+import LedgerArt from './LedgerArt'
 
 export default function Inbox({ items, draft, selectedId, onDraft, onCapture, onPointerDown, onSelect }) {
   return (
@@ -18,7 +19,10 @@ export default function Inbox({ items, draft, selectedId, onDraft, onCapture, on
 
       <ul className="inbox">
         {items.length === 0 && (
-          <li className="empty">Nothing waiting. Everything has a time.</li>
+          <li className="empty inbox-empty">
+            <LedgerArt kind="inbox" />
+            <span>Nothing waiting. Everything has a time.</span>
+          </li>
         )}
         {items.map((b) => (
           <li

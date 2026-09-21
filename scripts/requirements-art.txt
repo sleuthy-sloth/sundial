@@ -1,0 +1,9 @@
+# Build-time only: the two scripts that write committed images from committed sources.
+# Pillow is deliberately not in backend/requirements.txt — the app never imports it, and the
+# PNGs, the favicon and the artwork are all committed. Install this to regenerate them:
+#
+#     env -u PYTHONPATH backend/.venv/bin/pip install -r scripts/requirements-art.txt
+#
+# CI installs it to run the same scripts with --check, which is where a derivative that has
+# drifted out of budget, or a maskable icon Android's crop would cut, gets caught.
+pillow==12.3.0

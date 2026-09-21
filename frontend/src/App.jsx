@@ -5,6 +5,7 @@ import {
 } from './time'
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
+import { dayIsClear } from './art'
 import { createLatest, createWriteQueue } from './saving'
 import Header from './components/Header'
 import Inbox from './components/Inbox'
@@ -385,6 +386,7 @@ export default function App() {
               onAddAt={addToSection}
               leaving={leaving}
               settling={settling}
+              dayClear={dayIsClear(blocks, inbox, day, today)}
             />
           </div>
         ) : (

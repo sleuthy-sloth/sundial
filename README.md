@@ -4,6 +4,8 @@ A visual day planner that runs on your own hardware. The day is a list you can r
 glance and a 24-hour canvas you can drag blocks around on, over one SQLite file and a
 single process.
 
+![The sun on the left, a crescent moon on the right, and a ruler of hours between them](frontend/public/brand/sundial-readme-banner.webp)
+
 [![tests](https://github.com/sleuthy-sloth/sundial/actions/workflows/tests.yml/badge.svg)](https://github.com/sleuthy-sloth/sundial/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![python 3.13](https://img.shields.io/badge/python-3.13-3776ab.svg)
@@ -17,22 +19,23 @@ single process.
 
 ## What it does
 
-Two views of the same day, switched from the bar at the bottom. It remembers which one
-you were in.
+Two views of the same day, switched from the header. It remembers which one you were in.
 
-**To-do** — the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
-with a count. White cards, a coloured icon circle, a checkbox on the right, and a time
-range once a task has one. Adding to a section puts the task *after* whatever is already
-in that part of the day rather than on top of it. Anytime is the inbox.
+**Plan** — the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
+with a count and the span it actually covers. Rows sit on hairlines with the time in the
+gutter: a slim colour edge, the title, how long it takes, and a square to fill when it is
+done. Adding to a section puts the task *after* whatever is already in that part of the
+day rather than on top of it. Anytime is the inbox.
 
-**Calendar** — a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
+**Timeline** — a 24-hour canvas. Drag a block to move it, drag its bottom edge to change
 the length, drag from the inbox to schedule it, double-click empty space for a short
 block.
 
-Shared by both: a week strip (today in the accent colour, the day you are viewing on a
-pill), light and dark themes that follow your system, an activity icon per task, the free
-time between tasks drawn rather than implied, and a detail panel for icon, colour, notes,
-length, start time, done and delete.
+Shared by both: a header that reads like an instrument (the day, the time now, and which
+view you are in), light and dark themes that follow your system, the free time between
+tasks drawn and named rather than implied, and a detail panel for icon, colour, notes,
+length, start time, done and delete. An emoji still earns its place on a timeline block,
+where it helps you find one at a glance.
 
 Install it to your phone's home screen from Safari or Chrome — it is a real PWA, with an
 offline shell. The service worker already handles a push notification; nothing sends one
@@ -97,6 +100,52 @@ shell, the manifest and the service worker must be revalidated on every request,
 content-hashed files under `/assets` are kept for a year. That split is what lets an
 upgrade arrive on the phone instead of being shadowed by yesterday's copy.
 
+### The artwork
+
+Three states get a picture: an empty timeline, an empty inbox, and a day that is genuinely
+finished. They are the only raster images in the app. Each is drawn twice, once per theme, and
+both files sit in the DOM with CSS choosing between them — so the right one is showing at the
+first paint, and a dark-theme reader never sees the light one flash past. They are decorative:
+each state's own sentence is still what explains it, and the artwork is hidden from a screen
+reader rather than described twice.
+
+The originals are in `art/source/`, and the files the app ships are built from them by
+`scripts/make_art.py`: 800px wide, under 60KB each, and light and dark the same pixel size so
+switching theme cannot move the page. The script takes the highest quality that still fits the
+budget rather than a fixed one — flat line art with paper grain costs more to encode than a
+photograph does, and guessing a quality number is how a budget quietly stops being met.
+
+One step in it is worth knowing about. The supplied illustrations are drawn on their own ground,
+and the dark ones are about 15/255 lighter than this app's dark ground, so putting them straight
+on the canvas shows a rectangle of the wrong beige. So each file is matched to the surface it is
+actually placed on — the page for the dial and the low sun, the rail's own panel colour for the
+tray, because the rail is measurably lighter than the page — by shifting only the pixels within
+40/255 of the original ground. The strokes, the grain and the amber beam do not move.
+
+The dial is the exception, because it sits on the hour rules: its ground is keyed out instead, so
+the rules run underneath the drawing rather than stopping at its edges. Both shapes are verified
+in `--check`, along with the budgets, the matching dimensions and the absence of metadata, and CI
+runs it — a change to the palette cannot quietly leave the artwork sitting on a tile.
+
+```
+env -u PYTHONPATH backend/.venv/bin/python scripts/make_art.py           # rebuild them
+env -u PYTHONPATH backend/.venv/bin/python scripts/make_art.py --check   # verify the budgets
+env -u PYTHONPATH backend/.venv/bin/python scripts/make_icons.py         # the icon and favicon
+```
+
+The social card is `frontend/public/brand/sundial-og.jpg` (1200x630) and the banner at the top
+of this file is that directory's `sundial-readme-banner.webp` (2560x320).
+
+**Link previews need one setting.** The app writes the card into its own `og:` and `twitter:`
+tags, but with no host set those stay relative: a visitor's browser resolves them and a crawler
+will not. Set `VITE_APP_URL` in `frontend/.env` to your own address and rebuild. There is no
+default, deliberately — a wrong address baked into a build is worse than no preview.
+
+**GitHub's repository card is a manual step.** Nothing in this repo can set it: the social
+preview is uploaded by hand, once, at Settings → Social preview → *Upload an image*, and the file
+to upload is `frontend/public/brand/sundial-og.jpg`. Changing it later means uploading again,
+not committing.
+
 ```
 backend/app.py              the API and the block rules (FastAPI)
 backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
@@ -104,11 +153,16 @@ backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/test_*.py           82 tests
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
+scripts/make_art.py         the artwork, and the budgets CI checks it against
+scripts/make_icons.py       the app icon and the favicon, drawn from the stylesheet's tokens
 frontend/src/App.jsx        state and layout only
-frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph
-frontend/src/assets/fonts/  Atkinson Hyperlegible Next + IBM Plex Mono, self-hosted
-frontend/e2e/ui_check.mjs   101 browser checks, with real mouse input
+frontend/src/art.js         when the all-clear artwork is allowed to appear
+frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph,
+                            LedgerArt
+frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
+frontend/e2e/ui_check.mjs   141 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
+frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 scripts/backup.py           copy the database safely, and put a copy back
@@ -157,8 +211,8 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
-cd frontend && npm test                                # 19 unit tests, node --test
-cd frontend && npm run check:ui                        # 101 browser checks
+cd frontend && npm test                                # 25 unit tests, node --test
+cd frontend && npm run check:ui                        # 141 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 

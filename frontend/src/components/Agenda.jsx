@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { buildAgenda } from '../agenda'
 import { hhmm } from '../time'
 import Row from './Row'
+import LedgerArt from './LedgerArt'
 
 const COLLAPSED = 'sundial-collapsed'
 
@@ -17,7 +18,7 @@ const spanOf = (items) => {
 
 export default function Agenda({
   blocks, inbox, draft, captureRef, onDraft, onCapture, onOpen, onToggle, onAddAt,
-  leaving = [], settling = [],
+  leaving = [], settling = [], dayClear = false,
 }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -130,6 +131,15 @@ export default function Agenda({
           </section>
         )
       })}
+
+      {/* The only place the all-clear shows. Not per section — a quiet morning is not a
+          finished day — and only when the day is genuinely done (see dayIsClear in art.js). */}
+      {dayClear && (
+        <div className="state state-complete">
+          <LedgerArt kind="complete" />
+          <p className="state-line">Today is clear — everything you planned is done.</p>
+        </div>
+      )}
     </div>
   )
 }

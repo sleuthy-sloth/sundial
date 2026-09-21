@@ -879,6 +879,306 @@ const boxOf = async (text) => {
   check('and the capture field is still there', (await page.locator('.capture-card input').count()) === 1)
 }
 
+// ---- the artwork ---------------------------------------------------------------------------
+// Three states get a picture, in two themes each, and the words stay primary. Everything here
+// is measured against the running app: the file that is actually showing, its real pixel size,
+// and what the accessibility tree actually contains.
+{
+  const themeNow = () => page.evaluate(() => document.documentElement.dataset.theme)
+  const wantTheme = async (want) => {
+    if ((await themeNow()) !== want) {
+      await page.locator('.theme-toggle').click()
+      await page.waitForTimeout(200)
+    }
+  }
+  // "empty-inbox-light-B5h3xgiZ.webp" -> "empty-inbox-light": the build hash is not the point
+  const stem = (url) => {
+    const file = (url || '').split('/').pop().replace(/\.webp$/, '')
+    const parts = file.split('-')
+    return parts.length > 3 ? parts.slice(0, -1).join('-') : file
+  }
+  /** The picture a state is actually showing, and the one it is holding in reserve. */
+  const artOf = async (sel) =>
+    page.evaluate((s) => {
+      const wrap = document.querySelector(s)
+      if (!wrap) return null
+      const imgs = [...wrap.querySelectorAll('img')]
+      const shown = imgs.find((i) => getComputedStyle(i).display !== 'none')
+      const other = imgs.find((i) => i !== shown)
+      const box = wrap.getBoundingClientRect()
+      const cs = shown ? getComputedStyle(shown) : null
+      return {
+        ariaHidden: wrap.getAttribute('aria-hidden'),
+        alt: shown ? shown.getAttribute('alt') : null,
+        src: shown ? shown.currentSrc || shown.src : null,
+        natural: shown && shown.naturalWidth ? `${shown.naturalWidth}x${shown.naturalHeight}` : null,
+        otherSrc: other ? other.currentSrc || other.src : null,
+        otherDisplay: other ? getComputedStyle(other).display : null,
+        width: box.width,
+        height: box.height,
+        motion: cs ? `${cs.transitionDuration} ${cs.animationName}` : null,
+      }
+    }, sel)
+
+  const RESERVED = '800x537'
+  // The reserved box is only right if ONE file is drawing. If the hidden one is not actually
+  // hidden the two stack and the wrapper is twice as tall — which is exactly what happened.
+  const oneImageWide = (box) =>
+    Boolean(box) && box.width > 0 && Math.abs(box.height / box.width - 537 / 800) < 0.03
+
+  // 1. the empty inbox (the suite is sitting on one: nothing left, no blocks at all)
+  {
+    await wantTheme('light')
+    await page.locator('.view-switch button').nth(1).click() // the rail is the timeline's
+    await until(async () => (await page.locator('.inbox').count()) === 1)
+    check('the inbox really is empty before we look at it', (await inboxNow()).length === 0)
+    const box = await artOf('.inbox-empty .art')
+    check('the empty inbox shows the tray', Boolean(box) && box.width > 0, box ? `${Math.round(box.width)}px wide` : 'no .inbox-empty')
+    check('and it is the light file', Boolean(box) && stem(box.src) === 'empty-inbox-light', stem(box?.src))
+    check('at the size we reserved for it', Boolean(box) && box.natural === RESERVED, String(box?.natural))
+    check('and only one of the two files is drawn', oneImageWide(box), box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'absent')
+    check(
+      'the sentence is still there to explain it',
+      ((await page.locator('.inbox-empty').innerText()) || '').includes('Nothing waiting'),
+    )
+    check(
+      'and the picture is decoration, not content',
+      Boolean(box) && box.ariaHidden === 'true' && box.alt === '',
+      `aria-hidden=${box?.ariaHidden} alt=${JSON.stringify(box?.alt)}`,
+    )
+    check(
+      'the dark file waits, and is not the one showing',
+      Boolean(box) && box.otherSrc !== box.src && box.otherDisplay === 'none',
+      `other display=${box?.otherDisplay}`,
+    )
+    check('nothing animates it', Boolean(box) && box.motion === '0s none', String(box?.motion))
+
+    await wantTheme('dark')
+    const dark = await artOf('.inbox-empty .art')
+    check('the dark theme gets the dark tray', Boolean(dark) && stem(dark.src) === 'empty-inbox-dark', stem(dark?.src))
+    check(
+      'and the light one is hidden rather than merely beneath',
+      Boolean(dark) && dark.otherDisplay === 'none',
+      `light display=${dark?.otherDisplay}`,
+    )
+    await wantTheme('light')
+  }
+
+  // 2. the empty timeline, on a day nothing will ever be seeded on
+  {
+    await page.locator('.view-switch button').nth(1).click()
+    await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+    await until(async () => (await page.locator('.state-timeline .art').count()) === 1)
+
+    const light = await artOf('.state-timeline .art')
+    check('an empty timeline puts the dial on the rail', Boolean(light) && light.width > 0, light ? `${Math.round(light.width)}px wide` : 'absent')
+    check('and it is the light file', Boolean(light) && stem(light.src) === 'empty-timeline-light', stem(light?.src))
+    check('at the size we reserved for it', Boolean(light) && light.natural === RESERVED, String(light?.natural))
+    check('and only one of the two files is drawn', oneImageWide(light), light ? `${Math.round(light.width)}x${Math.round(light.height)}` : 'absent')
+    check(
+      'with the instruction still doing the explaining',
+      ((await page.locator('.timeline-empty').innerText()) || '').includes('Nothing planned yet'),
+    )
+    check(
+      'and it is kept off the accessibility tree',
+      Boolean(light) && light.ariaHidden === 'true' && light.alt === '',
+    )
+
+    // the screen-reader view of the same state: the sentence is there, the picture is not
+    const spoken = await page.locator('.content').ariaSnapshot()
+    check('a screen reader is told the state', spoken.includes('Nothing planned yet'), spoken.split('\n')[0])
+    check(
+      'and never told about the dial',
+      !/dial|sundial|illustration|image/i.test(spoken),
+      spoken.replace(/\n/g, ' ').slice(0, 60),
+    )
+
+    await wantTheme('dark')
+    const dark = await artOf('.state-timeline .art')
+    check('the dial has a dark twin', Boolean(dark) && stem(dark.src) === 'empty-timeline-dark', stem(dark?.src))
+    await wantTheme('light')
+    await page.fill('.day-head input[type="date"]', today)
+    await page.locator('.view-switch button').nth(0).click()
+    await page.waitForTimeout(400)
+  }
+
+  // 3. the all-clear, which is the one picture with a condition attached
+  {
+    check('an empty day does not claim to be finished', (await page.locator('.state-complete').count()) === 0)
+
+    const finisher = await spawn({ title: 'ui-check finished the day', duration_min: 30, day: today, start_min: 600 })
+    await page.reload({ waitUntil: 'networkidle' }) // the app has to see the new block
+    // finish it the way a person does, so this tests the app's own completion path
+    await page.locator('.agenda .row .notch').first().click()
+    const shown = await until(async () => (await page.locator('.state-complete .art').count()) === 1)
+    check('a finished day says so', Boolean(shown))
+
+    const all = await artOf('.state-complete .art')
+    check('with the low sun, light file', Boolean(all) && stem(all.src) === 'day-complete-light', stem(all?.src))
+    check('at the size we reserved for it', Boolean(all) && all.natural === RESERVED, String(all?.natural))
+    check('and only one of the two files is drawn', oneImageWide(all), all ? `${Math.round(all.width)}x${Math.round(all.height)}` : 'absent')
+    check('once, not once per section', (await page.locator('.state-complete').count()) === 1)
+    check(
+      'and no section wears the artwork',
+      (await page.locator('.section-body .art').count()) === 0,
+      `${await page.locator('.section-body .art').count()} in sections`,
+    )
+
+    await wantTheme('dark')
+    const darkAll = await artOf('.state-complete .art')
+    check('and a dark twin for it', Boolean(darkAll) && stem(darkAll.src) === 'day-complete-dark', stem(darkAll?.src))
+    await wantTheme('light')
+
+    // put it back the way a person does — one tap on the row in the finished group — because
+    // an API call the app never hears about would leave the panel on screen and the check
+    // would be measuring the app's memory rather than its behaviour
+    await page.locator('.done-group .row .notch').first().click()
+    check(
+      'and it stops claiming when something is left',
+      Boolean(await until(async () => (await page.locator('.state-complete').count()) === 0)),
+    )
+    await req(`/blocks/${finisher.id}`, { method: 'DELETE' }).catch(() => {})
+    if (made.includes(finisher.id)) made.splice(made.indexOf(finisher.id), 1)
+  }
+
+  // 4. what the build actually serves: the hashed art, the card, the icons
+  {
+    // Enumerated from the build rather than from whatever is on screen: a state that is not
+    // being visited right now still has to have shipped its files, and an empty list would make
+    // these two checks pass without testing anything, which is the failure mode that bit the
+    // first version of this block.
+    const results = await page.evaluate(async () => {
+      const html = await (await fetch('/')).text()
+      const bundle = html.match(/\/assets\/index-[A-Za-z0-9._-]+\.js/)
+      const src = bundle ? await (await fetch(bundle[0])).text() : ''
+      const urls = [...new Set(src.match(/\/assets\/[A-Za-z0-9._-]+\.webp/g) || [])]
+      const out = []
+      for (const u of urls) {
+        const r = await fetch(u)
+        out.push({ u, status: r.status, type: r.headers.get('content-type'), cc: r.headers.get('cache-control') })
+      }
+      return out
+    })
+    check(
+      'all six empty-state files shipped, and every one is served',
+      results.length === 6 && results.every((r) => r.status === 200 && (r.type || '').includes('webp')),
+      results.map((r) => `${r.u.split('/').pop()}:${r.status}`).join(' '),
+    )
+    check(
+      'and each is content-hashed and kept for good',
+      results.length === 6 && results.every((r) => /-[A-Za-z0-9_-]{8}\.webp$/.test(r.u) && (r.cc || '').includes('immutable')),
+      results[0] ? results[0].cc : 'nothing to check',
+    )
+
+    // the card, at the address the page advertises for it
+    const card = await page.evaluate(async () => {
+      const tag = document.querySelector('meta[property="og:image"]')
+      const w = document.querySelector('meta[property="og:image:width"]')
+      const h = document.querySelector('meta[property="og:image:height"]')
+      if (!tag) return null
+      const url = new URL(tag.content, location.origin).href
+      const res = await fetch(url)
+      const type = res.headers.get('content-type')
+      // decode it: the advertised size should be the file's real size, not a hopeful label
+      let real = null
+      try {
+        real = await createImageBitmap(await res.blob())
+      } catch {
+        real = null
+      }
+      return {
+        url,
+        status: res.status,
+        type,
+        declared: `${w?.content}x${h?.content}`,
+        real: real ? `${real.width}x${real.height}` : null,
+        card: document.querySelector('meta[name="twitter:card"]')?.content,
+      }
+    })
+    check('the social card resolves at the address we advertise', card?.status === 200 && (card?.type || '').includes('jpeg'), `${card?.url} -> ${card?.status} ${card?.type}`)
+    check('and it really is 1200x630', card?.real === '1200x630', `declared ${card?.declared}, decoded ${card?.real}`)
+    check('a large card, so the picture is the preview', card?.card === 'summary_large_image', String(card?.card))
+
+    const icons = await page.evaluate(async () => {
+      const paths = ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-maskable-512.png']
+      const out = {}
+      for (const p of paths) out[p] = (await fetch(p)).status
+      const manifest = await (await fetch('/manifest.webmanifest')).json()
+      return { out, maskable: (manifest.icons || []).filter((i) => i.purpose === 'maskable').map((i) => i.src) }
+    })
+    check(
+      'the favicon and the home-screen icons are all served',
+      Object.values(icons.out).every((s) => s === 200),
+      Object.entries(icons.out).map(([p, s]) => `${p.split('/').pop()}:${s}`).join(' '),
+    )
+    check(
+      'and the maskable ones are the padded files, not the plain icons',
+      icons.maskable.length === 2 && icons.maskable.every((s) => s.includes('maskable')),
+      icons.maskable.join(' '),
+    )
+
+    const shell = await page.evaluate(async () => (await fetch('/')).text())
+    check(
+      'no build placeholder is left in the shell',
+      !shell.includes('%VITE_'),
+      shell.includes('%VITE_') ? 'a %VITE_% was not replaced' : 'clean',
+    )
+  }
+
+  // 5. a slow connection: the box is the right shape before the picture arrives.
+  //    A fresh context, because the pictures are already in this page's cache and a cached
+  //    response never reaches the route — the first run of this check passed without ever
+  //    delaying anything, which is the sort of false pass worth waiting for.
+  {
+    // service workers are blocked: the app's worker answers asset requests from its own cache,
+    // and Playwright cannot route a request the worker makes, so the delay never applied
+    const slow = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
+    const page = await slow.newPage()
+    try {
+    await page.route('**/*.webp', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.continue()
+    })
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('.view-switch')
+    // choose the day first: the artwork is the same file for every empty day, so if the
+    // timeline draws once before this it is cached, the route never sees a request, and the
+    // check passes without ever testing a slow connection
+    await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+    await page.locator('.view-switch button').nth(1).click()
+    await page.waitForSelector('.state-timeline .art')
+
+    const pending = await page.evaluate(() => {
+      const img = document.querySelector('.state-timeline .art img:not([style*="none"])')
+      const wrap = document.querySelector('.state-timeline .art')
+      const box = wrap.getBoundingClientRect()
+      const loaded = [...wrap.querySelectorAll('img')].some((i) => i.complete && i.naturalWidth > 0)
+      return { width: box.width, height: box.height, loaded }
+    })
+    check('while the art is still in flight it has not loaded', pending.loaded === false, JSON.stringify(pending.loaded))
+    check(
+      'and its box is already the right shape',
+      pending.width > 0 && Math.abs(pending.height / pending.width - 537 / 800) < 0.02,
+      `${Math.round(pending.width)}x${Math.round(pending.height)}`,
+    )
+
+    await page.waitForTimeout(2500)
+    const arrived = await page.evaluate(() => {
+      const box = document.querySelector('.state-timeline .art').getBoundingClientRect()
+      return { width: box.width, height: box.height }
+    })
+    check(
+      'so nothing moves when it lands',
+      Math.abs(arrived.height - pending.height) < 1 && Math.abs(arrived.width - pending.width) < 1,
+      `${Math.round(pending.width)}x${Math.round(pending.height)} -> ${Math.round(arrived.width)}x${Math.round(arrived.height)}`,
+    )
+    } finally {
+      await slow.close() // its own context, so the rest of the run keeps its cache
+    }
+  }
+}
+
+
 check('no uncaught page errors', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '))
 
 await browser.close()
