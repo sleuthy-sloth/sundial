@@ -182,6 +182,40 @@ the server skips that request if it synced within the last fifteen minutes, so s
 views does not hammer iCloud. A `Sync now` control forces one. If you want it to happen
 while nobody is looking, point a systemd timer at `scripts/check_calendar.py --sync`.
 
+## In the day, not only beside it
+
+The day's events are drawn on the timeline at the hour their own clock says, from the same
+`GET /api/events?day=` answer the rail shows — no second endpoint and no second idea of what is on
+your day. Three rules, each with tests:
+
+* **Readable first.** Title in the body ink (`#25231F`, 13.9:1) at the weight a block title uses,
+  the time in mono, the calendar named. Ownership is said by a dotted hairline where a block has a
+  solid one, a `default` cursor where a block says grab, and the calendar's name in the row.
+  Fading the text is the obvious way to say "not yours" and it is the wrong one: an appointment
+  nobody can read is an appointment that may as well not be synced.
+* **A clash is drawn, not labelled.** When an appointment overlaps a block, the block gives up the
+  right half so both stay legible — the narrowed row is the signal, and nothing goes grey to say
+  it. Two appointments contesting that half are split between lanes (greedy interval
+  partitioning) rather than covering each other, so the half is shared rather than stacked.
+* **Touching is not clashing.** `occupied()` merges back-to-back blocks because together they are
+  one busy stretch; an appointment starting exactly when a block ends is not an over-booked hour.
+  Two different questions about the same day, so two rules rather than one.
+
+`appointments(blocks, events, day)` in `frontend/src/time.js` is pure and takes the local day being
+looked at as a required argument — guessing it from today's clock would silently place tomorrow's
+appointments nowhere, and a calendar that quietly disappears on the day you are planning is worse
+than one that is visibly absent. An answer carrying a different `day` is not drawn at all.
+
+### The rule the sketch settled
+
+Four takes were built against the app's real tokens before any of this was written. Three of them
+made an appointment quieter to show it was not yours — a mark in the gutter, a dashed row, a
+tinted band — and the note that came back was that all three made the appointments hard to see.
+The fourth said ownership and visibility are separate axes, and it is the one that shipped. The
+verification came with it: every appointment title is hit-tested with `document.elementFromPoint`
+at its own centre, in both themes and at phone width, because `getComputedStyle` reports a perfect
+contrast ratio for a title that a block is sitting on top of.
+
 ## Deliberately not in this slice
 
 - Pushing blocks out (the conversion exists, the transport call does not).
@@ -191,5 +225,6 @@ while nobody is looking, point a systemd timer at `scripts/check_calendar.py --s
 - Incremental sync via RFC 6578 `sync-collection`. A ctag comparison decides whether to
   refetch at all; when it does, it refetches the window. Windows are small enough that this
   is honest, and the failure mode of a hand-rolled sync-token is a silently missing event.
-- Events on the timeline. The next slice: they need a visual language that says "this is not
-  yours to move" without shouting, and that is design work, not plumbing.
+- Opening an appointment. On the timeline it is text, not a control: there is nowhere to go from
+  one, and a plan is not inferred from it. All-day events stay in the rail, having no hour to sit
+  at.

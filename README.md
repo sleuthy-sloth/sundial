@@ -303,8 +303,8 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 252 tests
-cd frontend && npm test                                # 38 unit tests, node --test
-cd frontend && npm run check:ui                        # 169 browser checks
+cd frontend && npm test                                # 50 unit tests, node --test
+cd frontend && npm run check:ui                        # 185 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -369,11 +369,15 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.5.0. Connecting happens in the app now: the calendar rail takes an Apple ID and an
-app-specific password and writes the file itself, so a working sync no longer starts with
-editing a file on the box. Two transports underneath, one of them switched on — iCloud syncs and
-is what ships, and Google is built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which
-was about trust rather than features: it keeps what you type, the day view describes the day
+v0.6.0. The calendar is in the day now: the day's appointments are drawn on the timeline at the
+hour their own clock says, readable in the same ink as a block and marked as not yours to move by
+a dotted hairline rather than by being faded. Where an appointment and a block share an hour, the
+block gives up half the column so both stay legible, and two appointments contesting that half are
+split between lanes instead of covering each other. Connecting and syncing came just before this:
+the rail takes an Apple ID and an app-specific password and writes the file itself, and two
+transports sit underneath, one of them switched on — iCloud syncs and is what ships, Google is
+built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which was
+about trust rather than features: it keeps what you type, the day view describes the day
 accurately, and an upgrade reaches the phone on its own. The honest gaps:
 
 - **Google is not switched on**, as above. The transport, the consent flow, the token file and
@@ -381,9 +385,13 @@ accurately, and an upgrade reaches the phone on its own. The honest gaps:
   and the app says exactly that rather than failing at the last moment.
 - **Nothing goes outwards.** Pushing a block out is written and tested (`block_to_ics`) and
   deliberately not wired up: nothing here writes to your calendar, on either provider.
-- **Events are not on the timeline.** They show in the rail, beside the plan. Putting them
-  into the day is the next slice, and it is design work before it is plumbing — they need a
-  visual language that says "this is not yours to move" without shouting.
+- **Appointments on the timeline cannot be opened.** They are text, not controls: there is
+  nowhere to go from one, and nothing about a block is inferred from it. An all-day event stays in
+  the rail, because it has no hour to sit at. A row cannot be longer than the free half allows, so
+  an hour with three appointments contests a third each rather than growing the column.
+- **Nothing is inferred from the calendar.** A clash shows you the over-booked hour and stops
+  there — no nudging, no "reschedule this", no suggestion. It is context beside the plan, and
+  the plan is still yours to change.
 - No repeating tasks or routines yet.
 - Notifications: the service worker is in place and listening, nothing sends yet.
 - Incremental sync (RFC 6578) is not implemented: a ctag decides whether to refetch at all,

@@ -2,7 +2,7 @@ import { HOUR_PX, hhmm, durText } from '../time'
 
 /** One scheduled block. Compact when it is too short to hold two rows —
  *  a 15-minute block still has to show what it is. */
-export default function Block({ block, view, isNow, selected, onPointerDown, onSelect }) {
+export default function Block({ block, view, isNow, selected, clash, onPointerDown, onSelect }) {
   const shown = view ?? block
   const height = Math.max((shown.duration_min / 60) * HOUR_PX, 20)
   const compact = height < 46
@@ -12,6 +12,9 @@ export default function Block({ block, view, isNow, selected, onPointerDown, onS
   if (isNow) classes.push('current')
   if (selected) classes.push('sel')
   if (compact) classes.push('compact')
+  // A calendar appointment shares this block's hour, so the block gives up half the column.
+  // Drawn, not labelled: the narrowed row is the whole signal.
+  if (clash) classes.push('clash')
 
   return (
     /* A real button, not a div wearing role="button": the browser then supplies Enter, Space,

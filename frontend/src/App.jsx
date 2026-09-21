@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import {
   HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, busyMinutes, hhmm,
+  appointments,
 } from './time'
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
@@ -431,6 +432,22 @@ export default function App() {
     }
   }
 
+  // The calendar's own events, placed on the clock, and the blocks that have to make room for
+  // them. Only for the day on screen: the panel's events belong to whichever day it last
+  // fetched, and drawing yesterday's appointments onto today would be a quiet lie.
+  const calendarColour = useMemo(
+    () => Object.fromEntries((calendar?.calendars ?? []).map((c) => [c.ref, c.colour])),
+    [calendar],
+  )
+  const calendarName = useMemo(
+    () => Object.fromEntries((calendar?.calendars ?? []).map((c) => [c.ref, c.name])),
+    [calendar],
+  )
+  const calendarInDay = useMemo(
+    () => appointments(blocks, calendarDay.day === day ? calendarDay.events : [], day),
+    [blocks, calendarDay, day],
+  )
+
   // Time spoken for, not the sum of the durations: a block nested inside another is
   // not two hours of your day, and "open" has to mean open.
   const planned = busyMinutes(blocks)
@@ -507,6 +524,10 @@ export default function App() {
               selectedId={selectedId}
               drag={drag}
               ghost={ghost}
+              appointments={calendarInDay.spans}
+              squeezed={calendarInDay.squeezed}
+              colourOf={calendarColour}
+              nameOf={calendarName}
               contentRef={contentRef}
               scrollerRef={scrollerRef}
               onDoubleClick={scheduleAt}

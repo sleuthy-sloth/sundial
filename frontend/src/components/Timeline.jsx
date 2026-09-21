@@ -6,6 +6,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
 export default function Timeline({
   day, today, blocks, nowMin, selectedId, drag, ghost,
+  appointments = [], squeezed, colourOf = {}, nameOf = {},
   contentRef, scrollerRef, onDoubleClick, onPointerDown, onSelect,
 }) {
   const gaps = freeGaps(blocks)
@@ -49,6 +50,33 @@ export default function Timeline({
           </div>
         )}
 
+        {/* The calendar's own events, drawn under the plan: an appointment is readable in full
+            ink and is not yours to move, and those two things are said separately — full-ink type
+            for the first, a dotted hairline and a default cursor for the second. Painting them
+            before the blocks keeps a block on top wherever they share an edge. */}
+        {appointments.map((a) => {
+          const height = Math.max((a.minutes / 60) * HOUR_PX - 4, 18)
+          return (
+            <div
+              key={a.key}
+              className={`appt c-${colourOf[a.calendar_ref] ?? 'slate'}${a.clash ? ' clash' : ''}`}
+              data-event={a.id}
+              data-calendar={a.calendar_ref}
+              style={{
+                top: (a.start_min / 60) * HOUR_PX,
+                height,
+                '--lane': a.lane,
+                '--lanes': a.lanes,
+              }}
+              title={`${a.title} — from ${nameOf[a.calendar_ref] ?? 'a calendar'}`}
+            >
+              <span className="appt-time">{hhmm(a.start_min)}</span>
+              <span className="appt-title">{a.title}</span>
+              <span className="appt-cal">{nameOf[a.calendar_ref] ?? ''}</span>
+            </div>
+          )
+        })}
+
         {blocks.map((b) => {
           const live = drag?.id === b.id && drag.mode !== 'schedule' && ghost
           const isNow =
@@ -59,6 +87,7 @@ export default function Timeline({
               block={b}
               view={live ? ghost : null}
               isNow={isNow}
+              clash={Boolean(squeezed?.has(b.id))}
               selected={selectedId === b.id}
               onPointerDown={onPointerDown}
               onSelect={onSelect}

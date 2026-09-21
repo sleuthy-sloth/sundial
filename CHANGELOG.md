@@ -1,5 +1,36 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.6.0 — 2026-09-21
+
+The calendar comes into the day. An appointment reads in the same ink as your own plan, and it is
+still not yours to move — which turned out to be two jobs, not one.
+
+- **Appointments on the timeline.** The day's events from every switched-on calendar are drawn at
+  the hour their own clock says, from the same `/api/events` answer the rail already shows. No new
+  endpoint, no second source of truth about what is on your day.
+- **Same ink, different line.** The title is set in the body ink at the weight a block title uses
+  (13.9:1, weight 500); ownership is said by a dotted hairline where a block has a solid one, a
+  `default` cursor where a block says grab, and the calendar's name in the row. The first three
+  takes made an appointment quieter to show it was not yours, and quiet is a thin line away from
+  invisible — the sketch where a faded row is the answer is the sketch that gets a calendar nobody
+  reads.
+- **A clash is drawn, not labelled.** When an appointment shares an hour with a block, the block
+  gives up the right half and both stay readable. The narrowed row is the whole signal; nothing
+  turns grey to say it. Two appointments contesting that half are split between lanes rather than
+  stacked on top of each other.
+- **Touching is not clashing.** Back-to-back blocks merge into one busy stretch, but an
+  appointment starting exactly when a block ends is not an over-booked hour. Two questions, two
+  rules, each with its own test.
+- **Only the day you are looking at.** An answer for another day is not drawn on this one: the
+  rail's events belong to whichever day it last fetched, and a stale answer arriving late would
+  otherwise place yesterday's appointments onto today.
+- **All-day events stay off the clock**, where they have no hour to sit at — the rail still lists
+  them.
+- **The layout rule is a pure function with twelve tests**, including the one that caught the
+  label sitting behind the block in the sketch: the browser check hit-tests every appointment
+  title at its own centre, in both themes and at phone width, because `getComputedStyle` will
+  report a perfect contrast ratio for a title that is underneath something.
+
 ## 0.5.0 — 2026-09-21
 
 A credential can be typed into the panel — the step that was missing between a sync that works
