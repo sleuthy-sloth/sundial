@@ -1,8 +1,13 @@
 /* sundial service worker: an offline shell, and the landing place for a
    notification. The API is deliberately never cached — a stale plan is worse
-   than no plan. Bump CACHE to retire the old one after a deploy. */
+   than no plan.
 
-const CACHE = 'sundial-v1'
+   CACHE names the offline shell's own storage. The server sends `no-cache` for the shell
+   and the worker and a year of `immutable` for the hashed assets, so a new build arrives
+   on its own and nothing here has to be bumped by hand after a deploy. Change this name
+   only if the caching in THIS file changes. */
+
+const CACHE = 'sundial-shell-2'
 const SHELL = ['/', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
