@@ -1264,6 +1264,49 @@ button { cursor: pointer; }
 .profile p.note { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
 
 
+/* ---------------- your data ----------------
+
+   Two controls that are not symmetrical, and the styling says so. Exporting is a read you can
+   do as often as you like; importing replaces everything and cannot be undone. So the
+   consequential one is the only *filled* control in the settings, which is what --solar is for —
+   a fill, never a stroke, and the token for the thing you are about to commit to. --on-solar on
+   that fill measures 5.36:1.
+
+   The quiet buttons reuse the chrome the notifications panel already uses: --accent on
+   --surface-2, which measures 4.22:1 against the 4.5:1 this file's header claims for a label.
+   That pair is pre-existing and shared, so it is copied rather than quietly reinvented here at a
+   different weight — but it is a real gap and it is written down in the CHANGELOG rather than
+   left for someone to measure again later. The fill's label is the one pair that clears it. */
+
+.data-row { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 0 2px; }
+.data-btn {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: background var(--t-quick) var(--ease-out);
+}
+.data-btn:hover:enabled { background: var(--accent-soft); }
+.data-btn:disabled { opacity: 0.55; cursor: default; }
+/* The one filled control in the settings, and the only one that says "this cannot be undone". */
+.data-replace { color: var(--on-solar); background: var(--solar); border-color: var(--solar); }
+.data-replace:hover:enabled { background: var(--solar); }
+.data-confirm {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--solar-wash);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+.data-confirm p.note { margin-top: 0; }
+.data-confirm strong { font-weight: 600; color: var(--text); }
+.data-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+
 /* ---------------- the switch ----------------
 
    The only control that says a state by where a thing sits rather than by a word. The theme and

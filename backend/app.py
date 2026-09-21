@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import os
 import sqlite3
 import uuid
@@ -20,12 +21,13 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 import calendar_service
 import calendar_sync
 import credentials
+import export
 import google_oauth
 import push
 from caldav import CalDavError, NotConfigured
@@ -105,6 +107,16 @@ def migrate() -> list[int]:
             current = version
             applied.append(version)
     return applied
+
+
+def current_schema_version(conn: sqlite3.Connection) -> int:
+    """The schema the database is actually at, read rather than assumed.
+
+    Read from the table instead of taken from the length of the migration list, because a
+    database left by an older checkout can be behind this code, and an export has to
+    describe the database it came out of rather than the one the code expected.
+    """
+    return int(conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"] or 0)
 
 
 def bootstrap() -> list[int]:
@@ -526,6 +538,85 @@ def push_test() -> dict:
     """Send one notification now, so the path can be proved without waiting for an hour."""
     with db() as conn:
         return push.nudge(conn)
+
+
+IMPORT_CONFIRMATION = "replace everything"
+
+
+class ImportIn(BaseModel):
+    """An import has to say what it is, because what it is is "replace everything"."""
+
+    confirm: str = ""
+    document: dict
+
+
+@app.get("/api/export")
+def export_all() -> Response:
+    """Everything sundial holds, as one JSON file.
+
+    Served as a download rather than left to be fetched and saved by hand, because the
+    filename is the only part of this that a person has to get right.
+    """
+    with db() as conn:
+        document = export.dump(conn, current_schema_version(conn))
+    return Response(
+        content=json.dumps(document, indent=2, sort_keys=True) + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="sundial-{today()}.json"'},
+    )
+
+
+@app.post("/api/import")
+def import_all(body: ImportIn) -> dict:
+    """Replace everything in the database with the contents of an export.
+
+    Destructive on purpose, and confirmed on purpose: merging sounds gentler but has to
+    guess whether two rows with the same id are one thing or two, and it guesses silently.
+    "This is my data now" is a promise that can be kept, and the panel says so first.
+
+    Two things it does not do. It does not touch `push_subscriptions`, so restoring your
+    data cannot unsubscribe the phone in your pocket. And it does not leave you without a
+    way back: the database being replaced is copied first, and the copy is named in the
+    answer.
+    """
+    if body.confirm.strip().lower() != IMPORT_CONFIRMATION:
+        raise HTTPException(
+            400,
+            f'an import replaces everything in sundial. Send "confirm": '
+            f'"{IMPORT_CONFIRMATION}" to mean it',
+        )
+    with db() as conn:
+        try:
+            tables = export.check(body.document, current_schema_version(conn))
+        except export.ExportError as exc:
+            raise HTTPException(400, str(exc)) from None
+        unknown = export.unknown_columns(body.document, conn)
+        if unknown:
+            named = ", ".join(f"{t}.{', '.join(c)}" for t, c in unknown.items())
+            raise HTTPException(
+                400,
+                f"that file has columns sundial does not know: {named}. Nothing was changed",
+            )
+        kept = export.keep_copy(conn, export.database_file(conn))
+        try:
+            written = export.replace(conn, tables)
+        except sqlite3.IntegrityError as exc:
+            # A file whose rows contradict each other: two blocks sharing one id, or an event
+            # naming a calendar the file does not carry. Left unhandled this is a 500 with a
+            # stack trace and no explanation, which is the worst of both — the person learns
+            # nothing and cannot tell whether it took. `replace` has already rolled back, so
+            # the honest answer is available: a refusal that names what SQLite objected to.
+            raise HTTPException(
+                400, f"that file contradicts itself: {exc}. Nothing was changed"
+            ) from None
+        left_alone = conn.execute(
+            "SELECT COUNT(*) AS n FROM push_subscriptions"
+        ).fetchone()["n"]
+    return {
+        "replaced": written,
+        "kept": str(kept),
+        "left_alone": {"push_subscriptions": left_alone},
+    }
 
 
 @app.delete("/api/blocks/{block_id}", status_code=204)

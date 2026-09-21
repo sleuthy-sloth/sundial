@@ -197,7 +197,8 @@ backend/google_oauth.py     Google's consent flow: PKCE, a single-use state, a 0
 backend/calendar_service.py the sync: credentials, transport, rules, database, sync_log
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
-backend/test_*.py           252 tests
+backend/export.py           the database as JSON, and putting it back
+backend/test_*.py           340 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -205,9 +206,10 @@ scripts/make_icons.py       the app icon and favicon: measured geometry, two lay
 frontend/src/App.jsx        state and layout only
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
-                            Profile, Glyph, LedgerArt, CalendarPanel
+                            Profile, Glyph, LedgerArt, CalendarPanel, Notifications, Switch,
+                            YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   198 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   219 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -215,7 +217,9 @@ frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
 frontend/src/calendar.test.js  unit tests for the panel's wording (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
+frontend/src/datafile.js    what the export panel may say about a file before using it
 scripts/backup.py           copy the database safely, and put a copy back
+scripts/cadu_card.py        today's plan as a rich card payload, as JSON on stdout
 deploy/sundial.service      systemd user unit
 ```
 
@@ -305,12 +309,40 @@ than the one arriving.
 Back up before upgrading. Reverting to the previous version does not undo a migration:
 the new schema stays, and the old code no longer knows how to read it.
 
+### Or take it with you as JSON
+
+A copy answers "put it back". It is not an exit: a `.db` file needs something that speaks
+SQLite, it carries whichever schema you happened to be running, and you cannot read it in a
+text editor or diff it. **Your data** in the settings offers the whole database as one readable
+file, and takes one back:
+
+```
+curl -O -J http://127.0.0.1:6770/api/export
+```
+
+The file holds your blocks, the calendars you connected and the events read from them. It does
+not hold your credentials — those are files beside the app and are never read for this — and it
+does not hold **each device's notification endpoint**, which is a capability rather than
+content: anything holding it can send to that phone. Importing leaves that table alone, so a
+restore cannot unsubscribe the device you are restoring onto.
+
+Importing **replaces** everything rather than merging. Merging sounds gentler and is the harder
+promise — two databases with the same block id are one block or two depending on nothing the
+file records, so a merge has to guess, and the guess is silent. The panel says so first, the
+request has to carry `"confirm": "replace everything"`, and the database it replaces is copied
+beside itself first, with the copy's path in the answer.
+
+A file that is not an export, one from a newer sundial, one missing a table (which would
+otherwise quietly delete the part it left out), one with a column sundial does not know, and one
+that contradicts itself — two rows sharing an id, or an event naming a calendar it does not
+carry — are all refused with a sentence, before anything is written.
+
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 252 tests
-cd frontend && npm test                                # 50 unit tests, node --test
-cd frontend && npm run check:ui                        # 185 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 340 tests
+cd frontend && npm test                                # 78 unit tests, node --test
+cd frontend && npm run check:ui                        # 219 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -339,6 +371,26 @@ and run the shooter. It refuses to run against a database that already has plans
 SUNDIAL_DB=/tmp/shots.db PORT=6771 bash run.sh &
 cd frontend && npm run shots
 ```
+
+## The day as a card
+
+`scripts/cadu_card.py` prints today's plan as a rich-card payload: a checklist of the day's
+blocks, with what is now and what is next in the summary.
+
+```
+python3 scripts/cadu_card.py --pretty
+```
+
+It reads the API rather than the database, so it can run from anywhere the app answers and
+cannot disagree with what the day view shows. `--day`, `--url` and `--at` cover another day,
+another copy, and another hour.
+
+It is written for Cadu, the iOS client that renders cards like this, and the payload is plain
+JSON, so any surface with a checklist can take it. Two things it will not fake: `completed`
+comes from a block's own done flag and never from the clock, because a block whose hour has
+passed is not a block that happened; and since ticking an item in the client is kept on the
+phone and never sent back, the card says so in its own summary rather than letting you believe
+you have changed your plan.
 
 ## Deploying
 

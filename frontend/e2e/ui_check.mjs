@@ -1864,6 +1864,133 @@ const wantThemeLight = async () => {
   )
 }
 
+// ---- your data: the way out ---------------------------------------------------------------
+// "Your data, and you can leave whenever" is a promise worth exactly what the download is worth,
+// so this takes a real file out of a real browser, reads it back, and puts it back — the round
+// trip, through the app's own API. The import is the only control in sundial that cannot be
+// undone, so its two-step shape is checked as carefully as its effect, and the copy it leaves
+// behind is deleted again: a check that litters makes the next run start from another state.
+{
+  const fsx = require('node:fs')
+  const osx = require('node:os')
+  const pathx = require('node:path')
+  const dir = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'sundial-export-'))
+
+  const walk = await req('/blocks', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'A block that takes the trip',
+      day: today,
+      start_min: 300,
+      duration_min: 30,
+    }),
+  })
+  made.push(walk.id)
+  const onTheDay = async () => (await req(`/day?day=${today}`)).blocks.some((b) => b.id === walk.id)
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('.data-export').click(),
+  ])
+  const saved = pathx.join(dir, download.suggestedFilename())
+  await download.saveAs(saved)
+  const raw = fsx.readFileSync(saved, 'utf8')
+  const document = JSON.parse(raw)
+
+  check(
+    'an export is a file with a date in its name, not a page of JSON',
+    /^sundial-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()),
+    download.suggestedFilename(),
+  )
+  check(
+    'and it is a complete export, every table present',
+    document.format === 'sundial-export' &&
+      ['calendars', 'blocks', 'events', 'sync_log', 'push_sent'].every((t) =>
+        Array.isArray(document.tables[t]),
+      ),
+    `format ${document.format}, version ${document.version}`,
+  )
+  check(
+    'and it carries the day it was taken from',
+    document.tables.blocks.some((b) => b.id === walk.id),
+    `${document.tables.blocks.length} block(s) in the file`,
+  )
+  check(
+    'and it does not carry the phone\u2019s notification endpoint',
+    !('push_subscriptions' in document.tables) && !raw.includes('push.apple.com'),
+    'a capability is not content',
+  )
+  check(
+    'and the panel says what it saved, in the file\u2019s own name',
+    (await textOf('.data-note')).includes(download.suggestedFilename()),
+    (await textOf('.data-note')).slice(0, 90),
+  )
+
+  // Half one: a file that is not an export must be refused before any button is offered.
+  const wrong = pathx.join(dir, 'not-an-export.json')
+  fsx.writeFileSync(wrong, JSON.stringify({ hello: 'world' }))
+  await page.locator('.data-file').setInputFiles(wrong)
+  await until(async () => /not a sundial export/.test(await textOf('.data-note')))
+  check(
+    'a file that is not an export is refused, and offers no button',
+    /not a sundial export/.test(await textOf('.data-note')) &&
+      (await page.locator('.data-confirm').count()) === 0,
+    await textOf('.data-note'),
+  )
+
+  // Half two: a real export asks first, and says what it is about to do.
+  await page.locator('.data-file').setInputFiles(saved)
+  await until(async () => (await page.locator('.data-confirm').count()) === 1)
+  const confirm = await textOf('.data-confirm')
+  check(
+    'a real export is quoted back before anything happens',
+    confirm.includes(download.suggestedFilename()) &&
+      /holds \d+ blocks?/.test(confirm) &&
+      /cannot be undone/.test(confirm),
+    'the file, what is in it, and the consequence',
+  )
+  check(
+    'and the control that replaces everything is the only filled one',
+    (await page.locator('.data-confirm .data-replace').count()) === 1,
+    'a consequence stated, rather than "are you sure?"',
+  )
+
+  await page.locator('.data-cancel').click()
+  await until(async () => (await page.locator('.data-confirm').count()) === 0)
+  check(
+    'and backing out leaves the day exactly as it was',
+    (await page.locator('.data-confirm').count()) === 0 && (await onTheDay()),
+    'no import ran',
+  )
+
+  // Now mean it: remove the block, then put the file back.
+  await req(`/blocks/${walk.id}`, { method: 'DELETE' })
+  check('the block is gone before the import', !(await onTheDay()))
+
+  await page.locator('.data-file').setInputFiles(saved)
+  await until(async () => (await page.locator('.data-confirm').count()) === 1)
+  await page.locator('.data-replace').click()
+  const cameBack = await until(async () => await onTheDay())
+  check('importing brings the whole day back', cameBack, 'the promise, kept')
+
+  const after = await textOf('.data-note')
+  check(
+    'and it reports what it replaced, and that notifications were left alone',
+    /Replaced everything/.test(after) && /notification setting was left alone/.test(after),
+    after.slice(0, 110),
+  )
+  const kept = after.match(/kept at (\S+?)\.$/)?.[1]
+  check('and names the copy of what it replaced', Boolean(kept), kept || 'no path in the message')
+  if (kept) fsx.rmSync(kept, { force: true })
+
+  // Leave the day as this section found it. The pictures further down are of the plan, so a
+  // block of ours sitting on today would fail them — and would also stop the finished-day shot
+  // from ever being finished, which is how two unrelated failures turned out to be one cause.
+  // It is also the reason a whole-database replace belongs here, and not anywhere the suite is
+  // midway through something.
+  await req(`/blocks/${walk.id}`, { method: 'DELETE' }).catch(() => {})
+}
+
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop
 // in both themes, the three empty states, and the icon under its launcher masks. Baselines are

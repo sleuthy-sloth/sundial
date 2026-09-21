@@ -3,6 +3,7 @@ import { version } from '../../package.json'
 import CalendarPanel from './CalendarPanel'
 import Notifications from './Notifications'
 import Switch from './Switch'
+import YourData from './YourData'
 
 /**
  * The app's own settings, in a tab of their own rather than in a column beside your day.
@@ -60,6 +61,8 @@ export default function Profile({
       </div>
 
       <Notifications />
+
+      <YourData />
 
       <h2>This copy</h2>
       <div className="set-row">

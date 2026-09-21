@@ -1,5 +1,58 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.10.0 — 2026-09-21
+
+Two ways out, and a glance for the phone.
+
+**The whole database as one readable file.** `scripts/backup.py` answers "put it back": it copies
+the file through SQLite, so a restore is exact and brings back everything, including what this
+app has not thought about. It cannot answer "this is mine and I can read it" — a `.db` file needs
+something that speaks SQLite, it carries whichever schema you happened to be running, and you
+cannot read it in a text editor or diff it. So `GET /api/export` hands you one JSON file, **Your
+data** in the settings offers it as a button, and `POST /api/import` puts it back.
+
+- **Replace, not merge.** Merging sounds gentler and is the harder promise to keep: two databases
+  with the same block id are one block or two depending on nothing the file records, so a merge
+  has to guess, and the guess is silent. The panel says what it will do before it does it, and
+  the request has to carry `"confirm": "replace everything"` — a phrase that is impossible to
+  send by accident and readable when found in a log.
+- **An import cannot unsubscribe you.** `push_subscriptions` is deliberately absent from the
+  file: an endpoint is a capability, and anything holding one can notify that device, so it has
+  no business in a file people mail to themselves. The table is left alone rather than emptied,
+  which is also why restoring your data cannot silence the phone in your pocket.
+- **It leaves a way back.** The database being replaced is copied first, through SQLite's own API
+  rather than `cp` — the app is answering requests while this happens, and in WAL mode a plain
+  copy can be missing the newest write while still looking like a perfectly good database. The
+  copy's path is in the answer.
+- **Every refusal is a sentence, and none of them is a 500.** A file that is not an export; one
+  from a newer sundial, by format or by schema, because migrations only run forwards; one missing
+  a table, which would otherwise quietly delete the part it left out; one with a column sundial
+  does not know; and one that contradicts itself — two rows sharing an id, or an event naming a
+  calendar the file does not carry. That last one arrived as an unhandled `IntegrityError` and
+  reached the browser as a 500 with a stack trace: the worst of both, since nothing is learned
+  and there is no way to tell whether it took.
+
+**Today as a card.** `scripts/cadu_card.py` prints the day as a rich-card payload for Cadu: a
+checklist of the blocks, with what is now and what is next in the summary. It reads the API
+rather than the database, so it cannot disagree with the day view. It will not fake `completed`
+from the clock — a block whose hour has passed is not a block that happened — and because ticking
+an item is saved on the phone and never sent back, the card says so in its own summary rather
+than letting you believe you have changed your plan. The payload was checked against the real
+validator rather than the documentation, which is how it acquired the one key nothing local could
+have known it needed: a checklist is an interactive card, and an interactive card is refused
+without an `id`.
+
+**A measured gap, left visible rather than tidied away.** The settings buttons label themselves
+`--accent` on `--surface-2`, which measures **4.22:1** — just under the 4.5:1 that `styles.css`'s
+own header claims for a label on its ground. The new buttons reuse that pair instead of inventing
+a third look for the same panel, and the number is written down here rather than left for someone
+to measure again. The one filled control, "Replace everything", uses `--on-solar` on `--solar` at
+**5.36:1**.
+
+340 backend tests, 78 frontend unit tests, 219 browser checks — including a round trip that
+exports a file out of a real browser, reads it back, deletes a block, imports the file and finds
+the block again.
+
 ## 0.9.1 — 2026-09-21
 
 Notifications were being refused by Apple, and the app was saying the wrong thing about why. Both
