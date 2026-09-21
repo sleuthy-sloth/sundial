@@ -28,7 +28,9 @@ plan says it in one line at the top of Today:
 - **The snapshots now pin the clock.** The glance counts down, so it could never be a stable
   picture — and the timeline's now line was already drifting with the hour, passing only because a
   1.5px rule stays under the noise threshold. The shots run at a fixed 11:00, where the seeded day
-  has a block in progress.
+  has a block in progress. The browser checks pin it as well: a block
+  seeded relative to the real minute runs past midnight when the suite runs in the evening, which
+  is what CI does, and a suite that passes all afternoon is not a suite.
 
 Also fixed: the README said nothing could send a notification, which stopped being true when
 notifications shipped.

@@ -2003,9 +2003,15 @@ const wantThemeLight = async () => {
 // The lead reads NOW/NEXT in innerText because CSS uppercases it, so these match case-insensitively.
 {
   const twoDigit = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-  const clock = new Date()
-  const nowMin = clock.getHours() * 60 + clock.getMinutes()
   const dateBox = '.day-head input[type="date"]'
+
+  // Pin the clock, and let the seeds below come off that instead of off the real minute. A block
+  // seeded relative to the wall clock runs past midnight whenever this runs in the evening — CI
+  // does, at 22:47 UTC, where a two-hour block starting twenty minutes ago was refused with
+  // "block runs past midnight", correctly. A fixed minute also makes the whole section read the
+  // same in every timezone, which is how an afternoon-only bug stayed hidden here for a while.
+  await page.clock.setFixedTime(new Date(`${today}T15:40:00`))
+  const nowMin = 15 * 60 + 40
   const line = async () => (await textOf('.glance')).replace(/\s+/g, ' ').trim()
 
   await page.locator('.tabs button[data-tab="today"]').click()
@@ -2029,7 +2035,7 @@ const wantThemeLight = async () => {
   await req(`/blocks/${running.id}`, { method: 'DELETE' })
   const coming = await spawn({
     title: 'ui-check coming', day: today,
-    start_min: Math.min(23 * 60 + 30, nowMin + 90), duration_min: 30,
+    start_min: nowMin + 90, duration_min: 30,
   })
   await page.reload({ waitUntil: 'networkidle' })
 
