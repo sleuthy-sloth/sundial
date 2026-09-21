@@ -493,14 +493,16 @@ const boxOf = async (text) => {
   const dateBox = '.day-head input[type="date"]'
   const moved = await until(async () => {
     if ((await page.locator('.timeline-empty').count()) === 1) return true
-    // Set it again, and go on setting it while the app has not moved. Reading the field back is
-    // not enough to know a change event landed: fs fill sets the input's value whether or not
-    // React heard about it, so a lost event leaves a field that reads the empty day above a
-    // timeline still drawing today — five blocks and no empty state, which is exactly what this
-    // reported from CI while passing here. The empty state is the app's own evidence.
+    // Clear the field before setting it. Filling the same value again is not a change as far as
+    // the browser is concerned, so a lost event was being re-sent identically and lost
+    // identically — the retry could not succeed at the one thing it was there for. Emptying it
+    // first makes every attempt a real edit.
+    await page.fill(dateBox, '')
     await page.fill(dateBox, EMPTY_DAY)
     return (await page.locator('.timeline-empty').count()) === 1
-  })
+    // A loaded runner gets longer than a quiet one, because that is the case this is for: three
+    // CI jobs started at the same second is exactly when a six-second budget is not a budget.
+  }, 20000)
   check('the empty day is the day the app is actually showing', Boolean(moved),
     `empty state ${await page.locator('.timeline-empty').count()}, field ${await page.locator(dateBox).inputValue()}`)
 
@@ -508,7 +510,7 @@ const boxOf = async (text) => {
   // state to appear and then read the block count one round later.
   const empty = await until(async () =>
     (await page.locator('.timeline-empty').count()) === 1 &&
-    (await page.locator('.content .block').count()) === 0)
+    (await page.locator('.content .block').count()) === 0, 10000)
   check('an empty day draws no blocks', Boolean(empty),
     `empty state ${await page.locator('.timeline-empty').count()}, blocks ${await page.locator('.content .block').count()}`)
   await page.fill('.day-head input[type="date"]', today)
