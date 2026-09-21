@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 
 const BASE = process.argv[2] || 'http://127.0.0.1:6770'
-const HOUR_PX = 56
+const HOUR_PX = 72 // must match --hour-h / HOUR_PX in the app
 const SNAP_MIN = 15
 const today = new Date().toLocaleDateString('sv-SE')
 const EMPTY_DAY = '2099-01-01' // a day nothing will ever be seeded on
@@ -88,25 +88,37 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 {
   check('it opens on the to-do list, not the timeline', (await page.locator('.agenda').count()) === 1)
   check('with one capture field', (await page.locator('.capture-card input').count()) === 1)
-  check('and the four parts of the day', (await page.locator('.section-pill').count()) === 4)
+  check('and the four parts of the day', (await page.locator('.group-head').count()) === 4)
 
   const inSection = (section, text) =>
-    page.locator(`${section} .card`).filter({ hasText: text }).count()
+    page.locator(`${section} .row`).filter({ hasText: text }).count()
 
   check('a 9am task sits under Morning', (await inSection('.section-morning', 'ui-check walk')) === 1)
   check('a 2pm task sits under Afternoon', (await inSection('.section-afternoon', 'ui-check pm')) === 1)
   check('a 7pm task sits under Evening', (await inSection('.section-evening', 'ui-check eve')) === 1)
   check('unscheduled work waits under Anytime', (await inSection('.section-anytime', 'ui-check inbox item')) === 1)
 
-  const counts = await page.locator('.section-pill .count').allInnerTexts()
-  check('each section counts what it holds', counts.join(' ') === '(1) (2) (1) (1)', counts.join(' '))
+  const counts = await page.locator('.group-head .count').allInnerTexts()
+  check('each section counts what it holds', counts.join(' ') === '1 2 1 1', counts.join(' '))
 
-  // the checkbox on a card completes the task
-  const card = page.locator('.section-morning .card').filter({ hasText: 'ui-check walk' }).first()
-  await card.locator('.tick').click()
-  check('the card checkbox marks it done', Boolean(await until(async () => (await find(walk.id))?.done === true)))
-  check('and the card shows it', Boolean(await until(async () => (await page.locator('.card.done').count()) >= 1)))
-  await page.locator('.card.done .tick').first().click()
+  // The square on a row finishes the task. It fills at once, then the row leaves the list and
+  // lands in the section's finished group — so the check has to follow it there.
+  const row = page.locator('.section-morning .row').filter({ hasText: 'ui-check walk' }).first()
+  await row.locator('.notch').click()
+  check('the box marks it done', Boolean(await until(async () => (await find(walk.id))?.done === true)))
+  check(
+    'the row leaves the list for the finished group',
+    Boolean(await until(async () => (await page.locator('.done-group .row.done').count()) >= 1)),
+  )
+  check(
+    'and the section count drops it',
+    Boolean(await until(async () => (await page.locator('.section-morning .group-head .count').innerText()) === '1')),
+  )
+  check(
+    'the finished group counts it',
+    Boolean(await until(async () => (await page.locator('.done-group .done-line .count').first().innerText()) === '1')),
+  )
+  await page.locator('.done-group .row.done .notch').first().click()
   check('and un-marks it', Boolean(await until(async () => (await find(walk.id))?.done === false)))
 
   // capture from the list
@@ -123,22 +135,30 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 
 // ---- switching to the timeline ----
 {
-  await page.locator('.tabbar .tab').nth(1).click()
+  await page.locator('.view-switch button').nth(1).click()
   await page.waitForSelector('.content .block')
-  check('the tab bar switches to the timeline', (await page.locator('.content').count()) === 1)
-  check('and shows which view you are in', (await page.locator('.tabbar .tab.on').count()) === 1)
+  check('the header switch opens the timeline', (await page.locator('.content').count()) === 1)
+  check('and says which view you are in', (await page.locator('.view-switch button[aria-pressed="true"]').count()) === 1)
 }
 
 // ---- what the timeline rendered ----
-check('24 hour labels drawn', (await page.locator('.hour-label').count()) === 24)
+check('an hour rule an hour, a label every other one', (await page.locator('.hour-label').count()) === 12)
+check('the content is taller than the window it scrolls in', await page.evaluate(() => {
+  const s = document.querySelector('.scroller')
+  return s.scrollHeight > s.clientHeight + 100
+}))
+check('and opening the day leaves it at the hour you are in, not midnight', await page.evaluate(() => {
+  const s = document.querySelector('.scroller')
+  return s.scrollTop > 0
+}))
 check('the now line is on today', (await page.locator('.now').count()) === 1)
 check(
-  'the day heading is the weekday, in the serif',
-  /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/.test(
-    (await page.locator('.day-title').innerText()).trim(),
-  ),
-  await page.locator('.day-title').innerText(),
+  'the header names the day compactly',
+  // "Sun 20 Sep" or "Sun 20 Sept": the month name comes from the locale, its length does not
+  /^[A-Za-z]{3,4} \d{1,2} [A-Za-z]{3,4}$/.test((await page.locator('.day-name').innerText()).trim()),
+  await page.locator('.day-name').innerText(),
 )
+check('and the big serif weekday is gone', (await page.locator('.day-title').count()) === 0)
 check(
   'every block the API returns is on the timeline',
   (await page.locator('.content .block').count()) === (await blocksOn(today)).length,
@@ -234,7 +254,7 @@ const boxOf = async (text) => {
   })
   check('found an empty stretch of timeline to click', spot !== null)
   if (spot) {
-    const expected = snapMin((spot.offset / 56) * 60)
+    const expected = snapMin((spot.offset / HOUR_PX) * 60)
     await page.mouse.dblclick(
       (await page.locator('.content').boundingBox()).x + (await page.locator('.content').boundingBox()).width / 2,
       spot.y,
@@ -289,13 +309,19 @@ const boxOf = async (text) => {
 
 // ---- the week strip ----
 {
-  check('the week strip draws seven days', (await page.locator('.week-strip .day-pill').count()) === 7)
+  const dayName = () => page.locator('.day-name').innerText()
+  const start = await dayName()
+  check('the header reads the day like an instrument', /^[A-Za-z]{3,4} \d{1,2} [A-Za-z]{3,4}$/.test(start), start)
 
-  const on = page.locator('.week-strip .day-pill.on')
-  check('the day being viewed is on a pill', (await on.count()) === 1)
-  const shown = (await on.locator('.pill-num').innerText()).trim()
-  check('and it is the date being viewed', shown === String(Number(today.slice(8, 10))), shown)
-  check('today is picked out in the accent', (await page.locator('.week-strip .day-pill.today').count()) === 1)
+  await page.locator('.head-row .step').first().click() // back a day
+  check('stepping back moves the day', (await dayName()) !== start, `${start} -> ${await dayName()}`)
+  check('and offers a way back to today', (await page.locator('.today-pill').count()) === 1)
+  await page.locator('.today-pill').click()
+  check('which returns to the day it started on', (await dayName()) === start, await dayName())
+  check(
+    'and then there is nothing to come back from',
+    (await page.locator('.today-pill').count()) === 0,
+  )
 
   await page.fill('.day-head input[type="date"]', EMPTY_DAY)
   await page.waitForTimeout(300)
@@ -350,9 +376,9 @@ const boxOf = async (text) => {
   const heights = await gaps.evaluateAll((els) =>
     els.map((el) => Math.round(el.getBoundingClientRect().height)),
   )
-  check('the two-hour hole is drawn as free time', heights.includes(2 * 56), `heights ${heights.join(', ')}`)
+  check('the two-hour hole is drawn as open time', heights.includes(2 * HOUR_PX), `heights ${heights.join(', ')}`)
   const label = (await gaps.first().innerText()).trim()
-  check('and it is labelled in plain words', /free$/.test(label), label)
+  check('and it is labelled in plain words', /open$/.test(label), label)
 }
 
 // ---- an empty day says so in words ----
@@ -516,7 +542,7 @@ const boxOf = async (text) => {
 
   // 5. a capture that fails must not eat the text
   {
-    await page.locator('.tabbar .tab').nth(0).click()
+    await page.locator('.view-switch button').nth(0).click()
     await page.waitForTimeout(300)
     await page.route('**/api/blocks', async (route) => {
       if (route.request().method() !== 'POST') return route.continue()
@@ -549,7 +575,7 @@ const boxOf = async (text) => {
     check('and pressing Enter again saves it', Boolean(kept))
     if (kept) made.push(kept.id)
 
-    await page.locator('.tabbar .tab').nth(1).click() // back to the timeline for the rest
+    await page.locator('.view-switch button').nth(1).click() // back to the timeline for the rest
     await page.waitForTimeout(300)
   }
 
@@ -630,10 +656,12 @@ const boxOf = async (text) => {
     const late = await spawn({ title: 'ui-check late', duration_min: 90 })
     await page.reload({ waitUntil: 'networkidle' })
 
-    // The window is still wherever the checks before this one left it, and the rail
-    // scrolls with the page: put the top of the day back in view so the chip is
-    // actually under the pointer.
-    await page.evaluate(() => window.scrollTo(0, 0))
+    // The day scrolls inside its own column now, so put that back to the top before
+    // reaching for the chip — the rail beside it does not scroll at all.
+    await page.evaluate(() => {
+      const s = document.querySelector('.scroller')
+      if (s) s.scrollTop = 0
+    })
     const chip = await page
       .locator('.inbox .chip')
       .filter({ hasText: 'ui-check late' })
@@ -645,12 +673,14 @@ const boxOf = async (text) => {
 
     // Now scroll the far end of the day into view while still holding the item, which
     // is the only way to reach it: the timeline is taller than the window here.
-    const spot = await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight)
-      const wanted = ((23 * 60 + 45) / 60) * 56
+    const spot = await page.evaluate((hourPx) => {
+      // this runs in the page, so the scale has to be handed in rather than closed over
+      const s = document.querySelector('.scroller')
+      s.scrollTop = s.scrollHeight // still holding the item: this is how you reach the end
+      const wanted = ((23 * 60 + 45) / 60) * hourPx
       const rect = document.querySelector('.content').getBoundingClientRect()
       return { y: rect.top + wanted, x: rect.left + rect.width / 2 }
-    })
+    }, HOUR_PX)
     check(
       'the end of the day can be reached',
       spot.y > 40 && spot.y < 900 - 10,
@@ -668,8 +698,10 @@ const boxOf = async (text) => {
     check('the drop draws a preview', preview !== null)
     check(
       'and the preview fits inside the day',
-      preview ? ((preview.top + preview.height) / 56) * 60 <= 1440.5 : false,
-      preview ? `${Math.round(((preview.top + preview.height) / 56) * 60)} minutes in` : 'no preview',
+      preview ? ((preview.top + preview.height) / HOUR_PX) * 60 <= 1440.5 : false,
+      preview
+        ? `${Math.round(((preview.top + preview.height) / HOUR_PX) * 60)} minutes in`
+        : 'no preview',
     )
 
     await page.mouse.up()
@@ -678,15 +710,18 @@ const boxOf = async (text) => {
     check('the late drop is kept', Boolean(stored), `day=${stored?.day}`)
     check(
       'at the position the preview showed',
-      Boolean(stored && preview) && Math.abs((preview.top / 56) * 60 - stored.start_min) < 1,
-      `preview ${preview ? Math.round((preview.top / 56) * 60) : '?'} vs stored ${stored?.start_min}`,
+      Boolean(stored && preview) && Math.abs((preview.top / HOUR_PX) * 60 - stored.start_min) < 1,
+      `preview ${preview ? Math.round((preview.top / HOUR_PX) * 60) : '?'} vs stored ${stored?.start_min}`,
     )
     check(
       'and it does not run past midnight',
       Boolean(stored) && stored.start_min + stored.duration_min <= 1440,
       stored ? `${stored.start_min} + ${stored.duration_min}` : 'not kept',
     )
-    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.evaluate(() => {
+      const s = document.querySelector('.scroller')
+      if (s) s.scrollTop = 0
+    })
   }
 
   // 5. a tap, on a device that taps
@@ -695,7 +730,7 @@ const boxOf = async (text) => {
     const touchPage = await touchy.newPage()
     try {
       await touchPage.goto(BASE, { waitUntil: 'networkidle' })
-      await touchPage.locator('.tabbar .tab').nth(1).click()
+      await touchPage.locator('.view-switch button').nth(1).click()
       await touchPage.waitForSelector('.content .block')
       const target = touchPage.locator('.content .block').first()
       await target.scrollIntoViewIfNeeded()
@@ -711,7 +746,7 @@ const boxOf = async (text) => {
   // 6. bigger text is bigger, and the layout holds
   {
     const size = () =>
-      page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.day-title')).fontSize))
+      page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.hour-label')).fontSize))
     const before = await size()
 
     // Exactly what a reader asking for bigger text does: raise the browser's base size.
@@ -834,12 +869,12 @@ const boxOf = async (text) => {
   )
 
   // back to the list: with nothing left, every part of the day offers a way in
-  await page.locator('.tabbar .tab').nth(0).click()
+  await page.locator('.view-switch button').nth(0).click()
   await page.waitForTimeout(300)
   check(
     'an empty list still offers every part of the day',
-    (await page.locator('.card.empty').count()) === 4,
-    `${await page.locator('.card.empty').count()} placeholders`,
+    (await page.locator('.row.empty').count()) === 4,
+    `${await page.locator('.row.empty').count()} placeholders`,
   )
   check('and the capture field is still there', (await page.locator('.capture-card input').count()) === 1)
 }

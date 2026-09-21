@@ -75,6 +75,23 @@ One Python process serves the API and the built app on the same origin, so there
 CORS to get wrong and no second port to think about. SQLite holds the data, in WAL mode:
 `scripts/backup.py` is how you copy it (see [Backup and restore](#backup-and-restore)).
 
+### The look
+
+Parchment ground, ink text, solar amber for now and for selection, twilight for evening —
+and nothing decorative after that. The two views are one ledger seen two ways: a rail with a
+faint hour rule, blocks hanging off a thin spine, open intervals drawn as measured, named
+bands. Rows are separated by a hairline, not raised on cards; the colour you pick for a task
+is a slim edge rather than a pastel bubble; completion is a square you fill rather than a
+hollow circle. Time is set in IBM Plex Mono and everything else in Atkinson Hyperlegible
+Next, both self-hosted, so the columns of numbers line up and nothing is fetched from
+anywhere.
+
+Contrast is measured, not guessed, and the numbers are in the comments beside each token in
+`styles.css`. Nothing rests with a shadow: the only one in the app appears while you are
+holding something. Motion explains time and manipulation only — a block snapping as you drag
+it, a task filling its box and then leaving the list a beat later, under a reduce-motion
+setting that turns all of it off.
+
 The built app is served with an explicit cache policy rather than the browser's guess: the
 shell, the manifest and the service worker must be revalidated on every request, while the
 content-hashed files under `/assets` are kept for a year. That split is what lets an
@@ -88,9 +105,9 @@ backend/spa.py              serving the built app, and how long each file may be
 backend/test_*.py           82 tests
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 frontend/src/App.jsx        state and layout only
-frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
-                            Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   95 browser checks, with real mouse input
+frontend/src/components/    Header, Agenda, Row, Timeline, Block, Inbox, Editor, Glyph
+frontend/src/assets/fonts/  Atkinson Hyperlegible Next + IBM Plex Mono, self-hosted
+frontend/e2e/ui_check.mjs   101 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
@@ -140,8 +157,8 @@ the new schema stays, and the old code no longer knows how to read it.
 
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
-cd frontend && npm test                                # 18 unit tests, node --test
-cd frontend && npm run check:ui                        # 95 browser checks
+cd frontend && npm test                                # 19 unit tests, node --test
+cd frontend && npm run check:ui                        # 101 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -205,7 +222,7 @@ honest gaps:
   CalDAV was switched off in 2024, so it needs the REST API behind OAuth.
 - No repeating tasks or routines yet.
 - Notifications: the service worker is in place and listening, nothing sends yet.
-- On a wide window the timeline is taller than the viewport, so the page scrolls instead
-  of the timeline, and the scroll-to-now when you open a day does nothing.
+- The timeline opens at the hour you are in, which it never actually did: the column was
+  taller than its container, so it never scrolled and the jump-to-now was a no-op.
 
 MIT licensed — see [LICENSE](LICENSE).

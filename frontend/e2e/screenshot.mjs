@@ -50,9 +50,9 @@ const INBOX = [
 ]
 
 const SHOTS = [
-  { name: 'todo-light', view: 'todo', theme: 'light', width: 1280, height: 1180 },
-  { name: 'calendar-light', view: 'calendar', theme: 'light', width: 1280, height: 1180 },
-  { name: 'todo-dark', view: 'todo', theme: 'dark', width: 1280, height: 1180 },
+  { name: 'todo-light', view: 'todo', theme: 'light', width: 1280, height: 1420 },
+  { name: 'calendar-light', view: 'calendar', theme: 'light', width: 1280, height: 1420 },
+  { name: 'todo-dark', view: 'todo', theme: 'dark', width: 1280, height: 1420 },
   { name: 'phone', view: 'todo', theme: 'light', width: 390, height: 844 },
 ]
 

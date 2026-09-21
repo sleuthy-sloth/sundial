@@ -8,10 +8,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { busyMinutes, freeGaps, occupied } from './time.js'
+import { busyMinutes, freeGaps, occupied, shortDate } from './time.js'
 
 const at = (start, duration) => ({ start_min: start, duration_min: duration })
 const sum = (blocks) => blocks.reduce((n, b) => n + b.duration_min, 0)
+
+test('the day reads as an instrument would write it', () => {
+  // Order is fixed; the names come from the locale, and its month abbreviations vary in
+  // length ("Sep" in en-US, "Sept" in en-GB), so the shape is what is asserted.
+  assert.match(shortDate('2026-09-20'), /^[A-Za-z]{3,4} 20 [A-Za-z]{3,4}$/)
+  assert.equal(shortDate('2026-09-20'), shortDate('2026-09-20'), 'the same day twice')
+  assert.notEqual(shortDate('2026-09-20'), shortDate('2026-09-21'), 'and a different day differs')
+})
 
 test('a nested block leaves no free band behind it', () => {
   // 09:00-12:00 with 10:00-10:30 inside it, then 12:00-12:30

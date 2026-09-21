@@ -1,5 +1,35 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.2.0 — 2026-09-20
+
+The look, rebuilt around time rather than cards.
+
+### Changed
+
+- **The day is a ledger.** Parchment ground, ink text, solar amber for now and selection,
+  twilight for evening. The eight task colours survive as a slim edge instead of a pastel
+  bubble; rows sit on hairlines instead of cards; the icon circle is gone.
+- **One scale, one spine.** `--hour-h` is 72px, so half an hour is 36px — enough to hold a
+  title and a time. Hour rules are faint, open intervals of 30 minutes or more are named, and
+  blocks hang off a hairline spine. `--gutter` is in rem so a time never truncates.
+- **The header is an instrument.** `SUN 20 SEP` and the time now, a labelled `Plan | Timeline`
+  switch in place of the floating capsule, and the week strip and serif weekday are gone.
+  The day name itself opens the date picker, so the date is not stated twice.
+- **Type is self-hosted**: Atkinson Hyperlegible Next and IBM Plex Mono (OFL), 63KB total,
+  hashed like any other asset.
+- **Finishing a task has a shape.** The square fills, the row holds for half a second so you
+  can read what you checked, then it leaves the list and lands in a counted finished group at
+  the foot of its section. It is optimistic — the tap lands before the network answers — and a
+  failed write puts the row back. Under reduce-motion there is no travel at all.
+- **24-hour time throughout.** It was 12-hour in the list and 24-hour on the timeline; two
+  formats for one day was the kind of detail that makes an app feel assembled.
+- The completion control is drawn at 19px inside a 44px target.
+
+### Fixed
+
+- **The timeline scrolls, and opens where you are.** The column was taller than its container,
+  so the scroller never scrolled and the jump-to-now silently did nothing.
+
 ## Unreleased
 
 - The browser checks wait for an outcome instead of betting the machine is fast enough.

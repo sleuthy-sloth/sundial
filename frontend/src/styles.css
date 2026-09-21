@@ -1,57 +1,113 @@
 /* sundial — design tokens and layout.
-   Light-first, with dark as a re-derivation rather than a second design.
-   Geometry: --hour-h must stay in step with HOUR_PX in src/time.js. */
+   "Daylight ledger": light and time, nothing decorative. Parchment ground, ink text, solar
+   for now and selection, twilight for evening. Geometry: --hour-h must stay in step with
+   HOUR_PX in src/time.js, and --gutter has to stay in rem so the hour labels survive larger
+   text (a px gutter truncates 10:00 to 10:0 at 200%).
+
+   Contrast is stated per value because it was measured, not guessed. Anything used as a
+   stroke or a label clears 4.5:1 on the ground it sits on; --solar is a FILL only. */
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/hyperlegible-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/plexmono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/plexmono-500.woff2') format('woff2');
+}
 
 :root {
-  --bg: #f6f5f3; /* warm off-white, not blue-grey */
-  --surface: #ffffff;
-  --surface-2: #f1f0ee;
-  --line: #e8e6e2;
-  --text: #1c1c1e;
-  --muted: #8e8e93;
-  --accent: #8b5cf6;
-  --accent-soft: #ede8fe;
-  /* The "now" line is warm, never alarm-red: lateness is not signalled in red. */
-  --now: #ff7a6b;
-  --gap: rgba(28, 28, 30, 0.045);
+  /* ground */
+  --bg: #f4f1e8; /* parchment */
+  --surface: #fbfaf6;
+  --surface-2: #efece1;
+  --line: rgba(37, 35, 31, 0.13);
+  --line-faint: rgba(37, 35, 31, 0.07);
+  --text: #25231f; /* 13.9:1 on --bg — body text */
+  --ink-2: #4a463e;
+  --muted: #6e6a61; /* 4.8:1 — secondary text and every small label */
+  --gap: rgba(37, 35, 31, 0.05); /* the hatch on an open interval */
 
-  /* Time-of-day tones. These are the colour that tells you which part of the
-     day you are looking at, and they live on the section pills, not the cards. */
-  --tone-anytime: #efeff0;
-  --tone-morning: #fdebe4;
-  --tone-afternoon: #e9e9ff;
-  --tone-evening: #ede7ff;
+  /* meaning */
+  --solar: #d9822b; /* FILL only: ink on it is 5.4:1. On parchment it is 2.6:1 — never a stroke. */
+  --solar-mark: #a85c12; /* 4.4:1 — the now line, selection, focus rings */
+  --solar-wash: rgba(217, 130, 43, 0.14);
+  --twilight: #536b92; /* 4.8:1 — evening, and safe as text */
+  --twilight-wash: rgba(83, 107, 146, 0.12);
+  --accent: var(--solar-mark);
+  --accent-soft: var(--solar-wash);
+  --now: var(--solar-mark); /* the now line is warm, and never alarm-red */
 
-  --r-block: 12px;
-  --r-card: 16px;
+  /* The time-of-day tints are gone: a section is named by a rule and its span, not a pastel
+     pill. Kept as no-ops so the class names still resolve while the markup is migrated. */
+  --tone-anytime: transparent;
+  --tone-morning: transparent;
+  --tone-afternoon: transparent;
+  --tone-evening: transparent;
+
+  /* geometry */
+  --r-block: 6px; /* ledger rows */
+  --r-card: 10px; /* panels */
   --s2: 8px;
   --s3: 12px;
   --s4: 16px;
+  --hour-h: 72px; /* an honest scale earns its height: 30 minutes is 36px */
+  --gutter: 4rem; /* 64px, in rem so it grows with the reader's text size */
+  --shadow: none; /* nothing rests with a shadow */
+  --shadow-float: 0 2px 8px rgba(20, 20, 25, 0.06), 0 16px 32px -20px rgba(20, 20, 25, 0.28);
+  --shadow-drag: 0 6px 18px -8px rgba(20, 20, 25, 0.35);
 
-  --hour-h: 56px;
-  --shadow: 0 1px 3px rgba(20, 20, 25, 0.05), 0 6px 16px -12px rgba(20, 20, 25, 0.18);
-  --shadow-float: 0 2px 8px rgba(20, 20, 25, 0.06), 0 16px 32px -20px rgba(20, 20, 25, 0.3);
+  /* type */
+  --sans: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --serif: 'New York', ui-serif, Georgia, 'Iowan Old Style', serif; /* kept for the editor only */
 
-  /* The serif is the signature of this look. New York on Apple, Georgia elsewhere. */
-  --serif: 'New York', ui-serif, Georgia, 'Iowan Old Style', serif;
+  /* motion: how a task finishes. Only two speeds exist, so nothing can disagree. */
+  --t-quick: 140ms;
+  --t-calm: 240ms;
+  --t-hold: 520ms; /* the pause that lets you read what you just checked */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 [data-theme='dark'] {
-  --bg: #0f1115;
-  --surface: #17181c;
-  --surface-2: #1f2126;
-  --line: #2a2d34;
-  --text: #e9e9ec;
-  --muted: #9a9aa2;
-  --accent: #a78bfa;
-  --accent-soft: #2a2350;
-  --gap: rgba(233, 233, 236, 0.04);
-  --tone-anytime: #23252b;
-  --tone-morning: #3a2a24;
-  --tone-afternoon: #23244a;
-  --tone-evening: #2b2350;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -18px #000;
+  /* warm dark, derived from the parchment rather than from a blue-grey default */
+  --bg: #1b1a17;
+  --surface: #232220;
+  --surface-2: #2b2a26;
+  --line: rgba(236, 231, 219, 0.16);
+  --line-faint: rgba(236, 231, 219, 0.09);
+  --text: #ece7db;
+  --ink-2: #cbc5b8;
+  --muted: #a8a296; /* 5.9:1 on the dark ground */
+  --gap: rgba(236, 231, 219, 0.06);
+  --solar: #e0973f;
+  --solar-mark: #e8a95c; /* 7.3:1 */
+  --solar-wash: rgba(224, 151, 63, 0.18);
+  --twilight: #8aa3cc;
+  --twilight-wash: rgba(138, 163, 204, 0.16);
+  --shadow: none;
   --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.5), 0 18px 36px -22px #000;
+  --shadow-drag: 0 8px 24px -8px rgba(0, 0, 0, 0.7);
+}
+
+@media (max-width: 780px) {
+  :root {
+    --gutter: 3.25rem; /* 52px: 64px is 16% of a 390px screen */
+  }
 }
 
 * { box-sizing: border-box; }
@@ -62,8 +118,25 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 15px/1.45 var(--sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Every time and duration is set in the mono face: columns of numbers line up, and a
+   duration reads as a measurement rather than as prose. */
+.hour-label,
+.block-time,
+.block-dur,
+.gap span,
+.chip-dur,
+.now-chip,
+.tally,
+.group-head .meta,
+.row-time,
+input[type='date'],
+input[type='time'] {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 button, input, textarea { font: inherit; color: inherit; }
@@ -109,12 +182,12 @@ button { cursor: pointer; }
   text-transform: uppercase;
   color: var(--muted);
 }
+/* a count is a number, not a badge */
 .count {
   margin-left: 6px;
-  padding: 1px 7px;
-  background: var(--surface-2);
-  border-radius: 99px;
+  font-family: var(--mono);
   font-size: 0.6875rem;
+  color: var(--muted);
 }
 
 .inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
@@ -140,45 +213,100 @@ button { cursor: pointer; }
 
 /* ---------------- header ---------------- */
 
-.day { display: flex; flex-direction: column; min-width: 0; }
+.day { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 
 .day-head {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 18px 10px;
+  gap: 8px;
+  padding: 12px 16px 10px;
   background: var(--bg);
+  border-bottom: 1px solid var(--line);
 }
-.head-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.head-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .head-row .spacer { flex: 1; }
-.today-pill, .head-actions button {
+
+/* The day identity is an instrument reading, not a headline: SUN 20 SEP and the time now.
+   The big serif weekday is gone — it said the same thing in three times the space. */
+.day-id {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.day-id:hover .day-name { color: var(--solar-mark); }
+
+/* The date picker lives inside the day name, so it is present but not drawn. It keeps a
+   real box (1px, not display:none) so it can still be driven directly. */
+.date-quiet {
+  position: absolute;
+  left: 16px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  padding: 0;
+  border: 0;
+}
+.day-name { font-size: 0.9375rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.day-clock { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--muted); }
+
+.step {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 8px 14px;
+  border-radius: var(--r-block);
+  color: var(--text);
+  font-size: 0.9375rem;
+  line-height: 1;
 }
-.today-pill:hover, .head-actions button:hover { border-color: var(--accent); }
-.head-actions { display: flex; gap: 6px; }
-.head-actions .theme-toggle { width: 40px; padding: 8px 0; }
-.error { color: #d1604f; font-size: 0.8125rem; }
+.step:hover { border-color: var(--solar-mark); color: var(--solar-mark); }
 
-.day-title-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.day-title {
-  margin: 0;
-  font-family: var(--serif);
-  font-size: 2.125rem;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+/* Plan | Timeline, labelled, in the header — where the floating capsule used to hover
+   over the content it was covering. */
+.view-switch {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  overflow: hidden;
+  background: var(--surface);
 }
-.day-title-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.month {
-  font-size: 0.8125rem;
+.view-switch button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  padding: 8px 13px;
+  min-height: 34px;
   color: var(--muted);
 }
+.view-switch button + button { border-left: 1px solid var(--line); }
+.view-switch button[aria-pressed='true'] { background: var(--text); color: var(--bg); }
+
+.today-pill, .head-actions button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  padding: 7px 12px;
+  font-size: 0.8125rem;
+}
+.today-pill:hover, .head-actions button:hover { border-color: var(--solar-mark); color: var(--solar-mark); }
+.head-actions { display: flex; gap: 6px; }
+.head-actions .theme-toggle { width: 38px; padding: 7px 0; }
+.error { color: #a8452a; font-size: 0.8125rem; }
 .day-head input[type='date'] {
   background: none;
   border: 1px solid transparent;
@@ -191,77 +319,68 @@ button { cursor: pointer; }
 .day-head input[type='date']:hover { border-color: var(--line); }
 .tally { font-size: 0.8125rem; color: var(--muted); }
 
-/* the week strip: weekday over date, today in the accent, the viewed day on a pill */
-.week-strip { display: flex; gap: 2px; }
-.day-pill {
-  flex: 1;
-  display: grid;
-  gap: 1px;
-  justify-items: center;
-  padding: 6px 0 5px;
-  background: none;
-  border: none;
-  border-radius: 12px;
-}
-.day-pill:hover { background: var(--surface-2); }
-.day-pill.on { background: var(--surface-2); }
-.pill-dow { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
-.pill-num { font-size: 1.0625rem; line-height: 1.2; }
-.day-pill.today .pill-num { color: var(--accent); font-weight: 600; }
-.day-pill.on .pill-num { font-weight: 600; }
 
 /* ---------------- timeline ---------------- */
 
-.scroller { flex: 1; overflow-y: auto; }
+.scroller { flex: 1; min-height: 0; overflow-y: auto; padding-top: 12px; }
 
 .content {
   position: relative;
-  height: 1344px; /* 24h x 56px — keep in step with HOUR_PX */
-  margin: 0 18px 60px;
-  margin-left: 3.75rem; /* room for the hour labels, in the reader's own text size */
+  height: calc(24 * var(--hour-h)); /* 24h, from the one scale token */
+  margin: 0 18px 40px;
+  margin-left: var(--gutter); /* room for the hour labels, in the reader's own text size */
+  border-left: 1px solid var(--line); /* the spine: everything hangs off this */
   cursor: default;
 }
+.content:hover { cursor: default; }
 
-.hour { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); height: 1px; }
+/* hour rules are faint: they are a ruler, not a divider */
+.hour { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line-faint); height: 1px; }
 .hour-label {
   position: absolute;
-  left: -3.375rem;
-  top: -8px;
-  width: 2.875rem;
+  left: calc(-1 * var(--gutter));
+  top: -7px;
+  width: calc(var(--gutter) - 10px);
   text-align: right;
   font-size: 0.6875rem;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
-/* free time, shown so unstructured hours are visible rather than implied */
+/* An open interval, shown so unstructured hours are visible rather than implied. Hatched
+   rather than filled: a flat tint reads as a block of a different colour, and this is not a
+   thing, it is the absence of one. */
 .gap {
   position: absolute;
-  left: 0;
-  right: 0;
-  background: var(--gap);
-  border-radius: 8px;
+  left: 3px;
+  right: 10px;
+  background: repeating-linear-gradient(45deg, transparent 0 7px, var(--gap) 7px 8px);
+  border-radius: var(--r-block);
   pointer-events: none;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
 }
 .gap span {
-  position: absolute;
-  right: 8px;
-  top: 6px;
   font-size: 0.6875rem;
   color: var(--muted);
-  opacity: 0.8;
+  background: var(--bg); /* on clean ground, not on the hatching it describes */
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 
-.now { position: absolute; left: 0; right: 0; border-top: 1px solid var(--now); z-index: 5; }
-.now-dot {
+.now { position: absolute; left: 0; right: 0; border-top: 1.5px solid var(--now); z-index: 5; }
+.now-chip {
   position: absolute;
-  left: -4px;
-  top: -4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--now);
+  left: calc(-1 * var(--gutter) + 6px);
+  top: -11px;
+  background: var(--solar); /* a fill: ink on it is 5.4:1, the mark itself would be 2.6:1 */
+  color: var(--text);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 
 .timeline-empty {
@@ -278,24 +397,25 @@ button { cursor: pointer; }
 
 .block {
   position: absolute;
-  left: 0;
-  right: 0;
-  padding: 6px 10px;
-  background: var(--fill);
-  border-left: 3px solid var(--edge);
+  left: 3px;
+  right: 10px;
+  padding: 5px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--edge); /* the colour is a slim edge, not a pastel fill */
   border-radius: var(--r-block);
   overflow: hidden;
   cursor: grab;
   touch-action: none;
   user-select: none;
   z-index: 2;
-  box-shadow: var(--shadow);
-  transition: box-shadow 0.15s ease-out;
+  transition: box-shadow var(--t-quick) var(--ease-out);
 }
-.block.sel { box-shadow: 0 0 0 1px var(--edge), var(--shadow); z-index: 3; }
-.block.current { box-shadow: 0 0 0 1px var(--edge) inset, var(--shadow); }
-.block.done { opacity: 0.55; }
-.block.done .block-title { text-decoration: line-through; }
+/* selection and "you are in this block now" are the same idea, so both are solar */
+.block.sel { box-shadow: 0 0 0 1.5px var(--now); z-index: 3; }
+.block.current { box-shadow: inset 3px 0 0 var(--now); }
+.block.done { opacity: 0.5; }
+.block.done .block-title { text-decoration: line-through; text-decoration-color: var(--muted); }
 
 .block-time {
   display: block;
@@ -314,7 +434,9 @@ button { cursor: pointer; }
 .block-icon { flex: none; }
 .block-dur { margin-left: auto; color: var(--muted); font-size: 0.6875rem; flex: none; }
 .block.compact .block-time { display: none; }
-.block.compact { display: flex; align-items: center; padding: 2px 10px; }
+.block.compact { display: flex; align-items: center; padding: 2px 9px; gap: 7px; }
+/* a 30-minute block is 36px: room for a title, so it does not get the one-line treatment */
+.block.compact .block-title { font-size: 0.8125rem; }
 
 .resize { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; cursor: ns-resize; }
 .resize::after {
@@ -322,15 +444,21 @@ button { cursor: pointer; }
   position: absolute;
   left: 50%;
   bottom: 3px;
-  width: 26px;
-  height: 2px;
-  margin-left: -13px;
+  width: 20px;
+  height: 1.5px;
+  margin-left: -10px;
   border-radius: 2px;
-  background: var(--edge);
-  opacity: 0.45;
+  background: var(--muted);
+  opacity: 0.55;
 }
+.block:hover .resize::after { opacity: 0.9; }
 
-.block.ghost { opacity: 0.55; border-style: dashed; box-shadow: none; z-index: 4; }
+.block.ghost {
+  opacity: 0.6;
+  border-style: dashed;
+  box-shadow: var(--shadow-drag); /* the only shadow in the app, and only while held */
+  z-index: 4;
+}
 
 /* ---------------- editor ---------------- */
 
@@ -453,14 +581,17 @@ button { cursor: pointer; }
 
 /* ---------------- palette ---------------- */
 
-.c-slate   { --fill: #e8ebf2; --edge: #6b7893; }
-.c-sky     { --fill: #e3edff; --edge: #4c7ce0; }
-.c-violet  { --fill: #eae4ff; --edge: #7c5cf0; }
-.c-amber   { --fill: #fdf0d8; --edge: #d99a2b; }
-.c-emerald { --fill: #e5f4e2; --edge: #4f9e57; }
-.c-rose    { --fill: #ffe6e0; --edge: #e0684f; }
-.c-teal    { --fill: #dff3ef; --edge: #2fa89b; }
-.c-indigo  { --fill: #e7e9ff; --edge: #5a6ce0; }
+/* The eight colours are chosen by the user and validated by the API, so they keep their
+   names and lose their pastel: each one is now a muted edge that clears 4:1 on parchment,
+   plus a whisper of a wash for the picker and the inbox chips. */
+.c-slate   { --fill: color-mix(in srgb, #4e6577 12%, var(--surface)); --edge: #4e6577; }
+.c-sky     { --fill: color-mix(in srgb, #3f6b8a 12%, var(--surface)); --edge: #3f6b8a; }
+.c-violet  { --fill: color-mix(in srgb, #6a5a86 12%, var(--surface)); --edge: #6a5a86; }
+.c-amber   { --fill: color-mix(in srgb, #96702a 12%, var(--surface)); --edge: #96702a; }
+.c-emerald { --fill: color-mix(in srgb, #4a7358 12%, var(--surface)); --edge: #4a7358; }
+.c-rose    { --fill: color-mix(in srgb, #8d5a5a 12%, var(--surface)); --edge: #8d5a5a; }
+.c-teal    { --fill: color-mix(in srgb, #3f7373 12%, var(--surface)); --edge: #3f7373; }
+.c-indigo  { --fill: color-mix(in srgb, #4f5687 12%, var(--surface)); --edge: #4f5687; }
 
 [data-theme='dark'] .c-slate   { --fill: #232a36; --edge: #96a2bb; }
 [data-theme='dark'] .c-sky     { --fill: #16304f; --edge: #7aa7f0; }
@@ -517,8 +648,8 @@ button { cursor: pointer; }
 
 /* ---------------- agenda (the home view) ---------------- */
 
-.view { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 112px; }
-.view.is-timeline { padding: 0; overflow: hidden; display: flex; align-items: stretch; }
+.view { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 16px 112px; }
+.view.is-timeline { padding: 0; overflow: hidden; display: flex; align-items: stretch; min-height: 0; }
 
 .capture-card {
   display: flex;
@@ -545,150 +676,195 @@ button { cursor: pointer; }
 
 .agenda { display: flex; flex-direction: column; gap: 24px; }
 
-.section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.section-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 13px;
-  border: none;
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text);
-  background: var(--tone);
+/* A section is named by a rule, its span and what it holds — not by a pastel pill with an
+   emoji on it. The span came free: it was already in the data. */
+.group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
 }
-.section-pill .count { font-weight: 500; opacity: 0.6; }
-.section-pill .caret { font-size: 0.5625rem; opacity: 0.55; }
-.section-add {
-  margin-left: auto;
-  width: 30px;
-  height: 30px;
+.group-name {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.group-name:hover { color: var(--text); }
+.group-caret { font-size: 0.5rem; color: var(--muted); }
+.group-meta { font-size: 0.6875rem; color: var(--muted); }
+.count { font-family: var(--mono); font-size: 0.6875rem; color: var(--muted); }
+.group-head .count { margin-left: auto; }
+.group-add {
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: var(--r-block);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  font-size: 1.0625rem;
+  font-size: 1rem;
   line-height: 1;
 }
-.section-add:hover { border-color: var(--accent); color: var(--accent); }
+.group-add:hover { border-color: var(--solar-mark); color: var(--solar-mark); }
 
-.section-anytime { --tone: var(--tone-anytime); }
-.section-morning { --tone: var(--tone-morning); }
-.section-afternoon { --tone: var(--tone-afternoon); }
-.section-evening { --tone: var(--tone-evening); }
+.section-body { display: flex; flex-direction: column; }
 
-.section-body { display: flex; flex-direction: column; gap: 8px; }
-
-.card {
+/* The ledger row: time in the gutter, a slim colour edge, the title. One hairline between
+   rows and nothing else — no card, no shadow, no bubble. */
+.row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 12px 14px;
+  padding: 11px 6px 11px 0;
   text-align: left;
-  background: var(--surface);
-  border: none;
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow);
-  transition: box-shadow 0.15s ease-out;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line-faint);
+  cursor: pointer;
 }
-.card:hover { box-shadow: var(--shadow-float); }
-.card-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.card-title {
-  font-size: 1.0625rem;
+.row:hover { background: var(--surface); }
+.row-time {
+  width: var(--gutter);
+  flex: none;
+  text-align: right;
+  padding-right: 9px;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.row-edge {
+  width: 3px;
+  align-self: stretch;
+  flex: none;
+  border-radius: 2px;
+  background: var(--edge, var(--muted));
+}
+.row-body { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.row-title {
+  font-size: 1rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-meta { display: flex; align-items: center; gap: 5px; font-size: 0.9375rem; color: var(--muted); }
-.card-link { display: inline-flex; opacity: 0.7; }
-.card.done .card-title { text-decoration: line-through; color: var(--muted); }
+.row-meta { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--muted); }
+.row-link { display: inline-flex; opacity: 0.7; }
+.row.done .row-title { text-decoration: line-through; text-decoration-color: var(--muted); color: var(--muted); }
+.row.done .row-edge { opacity: 0.35; }
 
-.card-icon {
+/* Completion is a square you fill. The check draws itself: two strokes, 200ms, so the
+   gesture has a direction instead of appearing. */
+/* Drawn at 19px, but the button is a 44px box: the mark can be small and the thumb target
+   still be the size a thumb needs. */
+.notch {
+  width: 44px;
+  height: 44px;
+  margin: -12px 0;
   flex: none;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-size: 1.0625rem;
-  background: var(--surface-2);
-}
-.circle-green  { background: #dcf3e1; }
-.circle-blue   { background: #dfe9f7; }
-.circle-orange { background: #fbe7d8; }
-.circle-purple { background: #ece4fd; }
-.circle-rose   { background: #fbe2e4; }
-[data-theme='dark'] .circle-green  { background: #1e3325; }
-[data-theme='dark'] .circle-blue   { background: #1c2a3d; }
-[data-theme='dark'] .circle-orange { background: #3a2a1c; }
-[data-theme='dark'] .circle-purple { background: #2a2350; }
-[data-theme='dark'] .circle-rose   { background: #3a2024; }
-
-.card.empty {
-  background: none;
-  box-shadow: none;
-  border: 1px dashed #c7c7cc;
-  color: var(--muted);
-  font-size: 0.9375rem;
-}
-.card.empty:hover { border-color: var(--accent); }
-[data-theme='dark'] .card.empty { border-color: #3a3d45; }
-
-.tick {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1.5px solid var(--text);
-  background: none;
+  position: relative;
   padding: 0;
+  border: 0;
+  background: none;
 }
-.tick.on { background: var(--accent); border-color: var(--accent); }
-.tick.on::after {
+.notch::before {
   content: '';
-  display: block;
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid var(--muted);
+  border-radius: 3px;
+  transition: border-color var(--t-quick) linear, background-color var(--t-quick) linear;
+}
+.notch:hover::before { border-color: var(--text); }
+.notch::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 19px;
   width: 9px;
   height: 5px;
-  margin: 2px auto 0;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: rotate(-45deg);
+  border-left: 2px solid var(--bg);
+  border-bottom: 2px solid var(--bg);
+  transform: rotate(-45deg) scale(0.4);
+  opacity: 0;
+  transition: opacity 90ms linear 60ms, transform 200ms var(--ease-out) 60ms;
 }
+.notch[aria-checked='true']::before { background: var(--text); border-color: var(--text); }
+.notch[aria-checked='true']::after { opacity: 1; transform: rotate(-45deg) scale(1); }
 
-/* ---------------- the tab bar ---------------- */
-
-.tabbar {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 4px;
-  padding: 6px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: var(--shadow-float);
-  z-index: 15;
-}
-.tabbar .tab {
-  width: 56px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border: none;
-  border-radius: 999px;
-  background: none;
+.row.empty {
+  border-bottom: 1px dashed var(--line);
   color: var(--muted);
+  font-size: 0.9375rem;
+  padding-left: var(--gutter);
 }
-.tabbar .tab.on { background: var(--text); color: var(--surface); }
+.row.empty:hover { border-color: var(--solar-mark); }
+
+/* What you finished leaves the list, and lands here: counted, tappable, never lost. The
+   alternative — vanishing — would make the day look like it never happened. */
+.done-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 6px 9px calc(var(--gutter) + 3px);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line-faint);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  color: var(--muted);
+  text-align: left;
+  opacity: 0.85;
+}
+.done-line:hover { color: var(--text); }
+.done-line .count { margin-left: auto; }
+.done-group .row { opacity: 0.75; }
+
+
+/* ---------------- how a task finishes ---------------- */
+
+/* The box fills first, then the row leaves once you have had time to read what you just
+   checked. That pause is the whole difference between a considered interface and an
+   abrupt one. */
+@keyframes row-leave {
+  to {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+  }
+}
+.row.leaving {
+  overflow: hidden;
+  max-height: 64px;
+  animation: row-leave var(--t-calm) var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/* something arriving in the finished list gets one quiet breath of solar, so the eye can
+   follow where it went */
+@keyframes row-settle {
+  from { background: var(--solar-wash); }
+  to { background: transparent; }
+}
+.row.settling { animation: row-settle 420ms var(--ease-out); }
 
 .glyph { width: 20px; height: 20px; display: block; }
 

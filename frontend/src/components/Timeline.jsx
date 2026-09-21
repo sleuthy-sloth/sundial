@@ -19,7 +19,8 @@ export default function Timeline({
       >
         {HOURS.map((h) => (
           <div key={h} className="hour" style={{ top: h * HOUR_PX }}>
-            <span className="hour-label">{hhmm(h * 60)}</span>
+            {/* a ruler, not a wall of numbers: every other hour is named */}
+            {h % 2 === 0 && <span className="hour-label">{hhmm(h * 60)}</span>}
           </div>
         ))}
 
@@ -29,13 +30,13 @@ export default function Timeline({
             className="gap"
             style={{ top: (g.start_min / 60) * HOUR_PX, height: (g.minutes / 60) * HOUR_PX }}
           >
-            <span>{durText(g.minutes)} free</span>
+            <span>{durText(g.minutes)} open</span>
           </div>
         ))}
 
         {day === today && (
           <div className="now" style={{ top: (nowMin / 60) * HOUR_PX }}>
-            <span className="now-dot" />
+            <span className="now-chip">{hhmm(nowMin)}</span>
           </div>
         )}
 

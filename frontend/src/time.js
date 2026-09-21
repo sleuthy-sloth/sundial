@@ -1,4 +1,7 @@
-const HOUR_PX = 56
+// The hour is the app's unit of truth: 72px makes half an hour 36px, which is the
+// smallest slot that can hold a title and a time without clipping. --hour-h in styles.css
+// must match this.
+const HOUR_PX = 72
 const SNAP_MIN = 15
 const DAY_MIN = 1440
 
@@ -24,13 +27,18 @@ const monthName = (iso) =>
     .toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
     .toUpperCase()
 
-/** 12-hour clock, the way a phone shows it: 6:10 AM */
-const clockText = (min) => {
-  const h24 = Math.floor(min / 60) % 24
-  const suffix = h24 < 12 ? 'AM' : 'PM'
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
-  return `${h12}:${String(min % 60).padStart(2, '0')} ${suffix}`
+/** The day as an instrument reads it: Sun 20 Sep. Order is fixed rather than left to the
+ *  locale, because the header's shape is the point; the names still come from the locale. */
+const shortDate = (iso) => {
+  const d = new Date(`${iso}T12:00:00`)
+  const weekday = d.toLocaleDateString(undefined, { weekday: 'short' })
+  const month = d.toLocaleDateString(undefined, { month: 'short' })
+  return `${weekday} ${d.getDate()} ${month}`
 }
+
+/* The app tells the time one way everywhere: 24 hours, mono, tabular. It was mixed before
+   (12-hour in the list, 24-hour on the timeline), and two formats for one day is exactly the
+   kind of detail that makes a planner feel assembled rather than designed. */
 
 // Week strip helpers
 const dowOf = (iso) =>
@@ -82,5 +90,5 @@ const freeGaps = (blocks, minMinutes = 45) => {
 
 export {
   HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, hhmm, durText, shiftDay,
-  weekdayName, monthName, clockText, dowOf, dayNumOf, freeGaps, occupied, busyMinutes,
+  weekdayName, monthName, shortDate, dowOf, dayNumOf, freeGaps, occupied, busyMinutes,
 }

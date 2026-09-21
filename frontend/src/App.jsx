@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import {
-  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, busyMinutes,
+  HOUR_PX, SNAP_MIN, DAY_MIN, todayISO, minsNow, snap, durText, shiftDay, busyMinutes, hhmm,
 } from './time'
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
@@ -11,7 +11,6 @@ import Inbox from './components/Inbox'
 import Timeline from './components/Timeline'
 import Editor from './components/Editor'
 import Agenda from './components/Agenda'
-import TabBar from './components/TabBar'
 
 const VIEW_KEY = 'sundial-view'
 // Where a new task lands in a section that has nothing in it yet.
@@ -33,6 +32,12 @@ export default function App() {
   const [drag, setDrag] = useState(null)
   const [ghost, setGhost] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
+  // A finished task fills its box at once and leaves the list a beat later, so the tap has a
+  // result before the network does anything. Both lists are local state: a reload landing
+  // mid-animation cannot cut the motion short.
+  const [leaving, setLeaving] = useState([])
+  const [settling, setSettling] = useState([])
+  const timers = useRef([])
 
   const contentRef = useRef(null)
   const scrollerRef = useRef(null)
@@ -45,6 +50,7 @@ export default function App() {
   const inFlight = useRef(null)
 
   useEffect(() => { applyTheme(theme) }, [theme])
+  useEffect(() => () => timers.current.forEach(window.clearTimeout), [])
   useEffect(() => { localStorage.setItem(VIEW_KEY, view) }, [view])
 
   const load = useCallback(async () => {
@@ -267,11 +273,49 @@ export default function App() {
     [blocks, inbox, selectedId],
   )
 
+  /** The one place a row's data is changed locally, so the optimistic state cannot disagree
+   *  with itself when the task lives in the inbox rather than the day. */
+  const patchLocal = (id, changes) => {
+    const apply = (list) => list.map((b) => (b.id === id ? { ...b, ...changes } : b))
+    setBlocks(apply)
+    setInbox(apply)
+  }
+
+  /** Fill, hold while you read it, then leave. The hold is the whole difference between a
+   *  considered interface and an abrupt one: move it too fast and you never see what you
+   *  checked. Under reduce-motion the row still fills and still ends up in the finished list —
+   *  it just gets there without travelling. */
+  const depart = (id) => {
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const hold = still ? 0 : 520
+    const travel = still ? 0 : 260
+    timers.current.push(
+      window.setTimeout(() => {
+        setLeaving((ids) => (ids.includes(id) ? ids : [...ids, id]))
+        timers.current.push(
+          window.setTimeout(() => {
+            setLeaving((ids) => ids.filter((x) => x !== id))
+            setSettling((ids) => [...ids, id])
+            timers.current.push(
+              window.setTimeout(() => setSettling((ids) => ids.filter((x) => x !== id)), 460),
+            )
+          }, travel),
+        )
+      }, hold),
+    )
+  }
+
   const toggleDone = async (block) => {
+    const on = !block.done
+    patchLocal(block.id, { done: on })
+    if (on) depart(block.id)
     try {
-      await write(block.id, { done: !block.done })
+      await write(block.id, { done: on })
     } catch (e) {
+      // It never happened: put the row back where it was, and stop it leaving.
       setError(e.message)
+      patchLocal(block.id, { done: !on })
+      setLeaving((ids) => ids.filter((x) => x !== block.id))
     }
   }
 
@@ -316,12 +360,14 @@ export default function App() {
         <Header
           day={day}
           today={today}
+          clock={hhmm(nowMin)}
           tally={`${durText(planned)} planned · ${durText(Math.max(DAY_MIN - planned, 0))} open`}
-          week={week}
+          view={view}
           theme={theme}
           error={error}
           onPickDay={setDay}
           onShift={(delta) => setDay(shiftDay(day, delta))}
+          onView={setView}
           onTheme={toggleTheme}
         />
 
@@ -337,6 +383,8 @@ export default function App() {
               onOpen={setSelectedId}
               onToggle={toggleDone}
               onAddAt={addToSection}
+              leaving={leaving}
+              settling={settling}
             />
           </div>
         ) : (
@@ -370,7 +418,6 @@ export default function App() {
         />
       )}
 
-      <TabBar view={view} onPick={setView} />
     </div>
   )
 }
