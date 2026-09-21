@@ -459,11 +459,17 @@ const boxOf = async (text) => {
   // again if it did not take; a failure after that is about the app.
   const dateBox = '.day-head input[type="date"]'
   const moved = await until(async () => {
-    if ((await page.locator(dateBox).inputValue()) !== EMPTY_DAY) await page.fill(dateBox, EMPTY_DAY)
-    return (await page.locator(dateBox).inputValue()) === EMPTY_DAY
+    if ((await page.locator('.timeline-empty').count()) === 1) return true
+    // Set it again, and go on setting it while the app has not moved. Reading the field back is
+    // not enough to know a change event landed: fs fill sets the input's value whether or not
+    // React heard about it, so a lost event leaves a field that reads the empty day above a
+    // timeline still drawing today — five blocks and no empty state, which is exactly what this
+    // reported from CI while passing here. The empty state is the app's own evidence.
+    await page.fill(dateBox, EMPTY_DAY)
+    return (await page.locator('.timeline-empty').count()) === 1
   })
   check('the empty day is the day the app is actually showing', Boolean(moved),
-    `the date field reads ${await page.locator(dateBox).inputValue()}`)
+    `empty state ${await page.locator('.timeline-empty').count()}, field ${await page.locator(dateBox).inputValue()}`)
 
   // And wait for the assertion itself rather than a proxy for it: this used to wait for the empty
   // state to appear and then read the block count one round later.
