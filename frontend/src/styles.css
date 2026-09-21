@@ -1250,7 +1250,8 @@ button { cursor: pointer; }
 .set-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-faint); }
 .set-row .set-label { font-size: 0.9375rem; }
 .set-row .set-value { margin-left: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
-.set-row button.theme-row {
+.set-row button.theme-row,
+.set-row button.push-btn {
   font: inherit;
   font-size: 0.8125rem;
   color: var(--accent);
@@ -1261,3 +1262,74 @@ button { cursor: pointer; }
   cursor: pointer;
 }
 .profile p.note { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+
+/* ---------------- the switch ----------------
+
+   The only control that says a state by where a thing sits rather than by a word. The theme and
+   "tell me when a block starts" are the same question asked twice, so they are one component.
+
+   Two values here were chosen by measuring rather than by eye, because the obvious ones fail.
+   The knob is ink in both states: parchment on the amber fill is 2.6:1, so the knob that looks
+   right in the off position vanishes in the on one, and the track carries the state instead.
+   The track's edge is --muted rather than --line, because --line composites to 1.45:1 against
+   the panel — a control with no visible boundary — where --muted is 5.16:1 light and 6.26:1
+   dark, clear of the 3:1 a control edge is asked for. The amber fill is itself only 2.80:1
+   against light parchment and that is allowed, because the fill is not the signal: the knob's
+   position is, at 13.26:1 off and 5.36:1 on in light, 11.64:1 and 6.47:1 in dark.
+
+   Motion is --t-quick, the faster of the two speeds this app has, and it is switched off
+   wholesale by the reduced-motion rule at the foot of this file. */
+.switch {
+  --switch-w: 40px;
+  --switch-h: 22px;
+  --switch-knob: 14px;
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0; /* invisible, and still focusable — never display: none */
+  cursor: pointer;
+}
+.switch-track {
+  flex: 1;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  background: var(--surface-2);
+  transition: background-color var(--t-quick) var(--ease-out);
+  pointer-events: none;
+}
+.switch-knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: var(--switch-knob);
+  height: var(--switch-knob);
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform var(--t-quick) var(--ease-out),
+    background-color var(--t-quick) var(--ease-out);
+  pointer-events: none;
+}
+.switch input:checked ~ .switch-track { background: var(--solar); }
+.switch input:checked ~ .switch-knob {
+  background: var(--on-solar);
+  transform: translateX(calc(var(--switch-w) - var(--switch-knob) - 8px));
+}
+/* The input is invisible, so the ring lands on the track: same 2px, same offset, same mark. */
+.switch input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--solar-mark);
+  outline-offset: 2px;
+}
+.switch input:disabled { cursor: default; }
+.switch input:disabled ~ .switch-track,
+.switch input:disabled ~ .switch-knob { opacity: 0.45; }

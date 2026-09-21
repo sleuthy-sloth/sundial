@@ -219,7 +219,40 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
     opened === 2 && (await page.locator('.cal-input').count()) === 0,
     `opened ${opened}`,
   )
-  check('the theme is stated as a setting here too', (await page.locator('.theme-row').count()) === 1)
+  // The theme is toggled in the header and stated here as a setting. Since the switches
+  // arrived it states it by position, the same control the notifications row below it uses —
+  // and every way a copy-pasted switch fails is asserted, because a switch that cannot be
+  // reached or that opts out of the ring is worse than the button it replaced.
+  const themeSwitch = page.locator('.theme-switch')
+  const themeInput = themeSwitch.locator('input')
+  check(
+    'the theme is stated as a setting here too, and as a switch',
+    (await themeSwitch.count()) === 1 && (await themeInput.getAttribute('role')) === 'switch',
+    `${await themeSwitch.count()} switch in the theme row`,
+  )
+  check(
+    'the theme switch is reachable by keyboard, not only by click',
+    await themeInput.evaluate((el) => el.tabIndex >= 0),
+  )
+  check(
+    'and it shows the theme that is actually in force',
+    (await themeInput.isChecked()) ===
+      ((await page.evaluate(() => document.documentElement.dataset.theme)) === 'dark'),
+  )
+
+  // A programmatic focus does not match :focus-visible, so press Tab first to put the browser
+  // into keyboard modality. Without that this would pass while asserting nothing.
+  await page.keyboard.press('Tab')
+  await themeInput.focus()
+  const ring = await themeSwitch.locator('.switch-track').evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { w: s.outlineWidth, st: s.outlineStyle, off: s.outlineOffset }
+  })
+  check(
+    'and it draws the same focus ring every other control gets',
+    ring.w === '2px' && ring.st === 'solid' && ring.off === '2px',
+    `outline ${ring.w} ${ring.st}, offset ${ring.off}`,
+  )
 
   // Wide: the bar stays the navigation, and the rail returns beside the clock — where an
   // unscheduled task has a timeline to be dragged onto.
