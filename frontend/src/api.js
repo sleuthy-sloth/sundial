@@ -15,6 +15,14 @@ function message(body, res) {
   return `${res.status} ${res.statusText}`
 }
 
+import { CONFIRMATION } from './datafile'
+
+/** The name the server gave the download, so the panel does not invent a second one that could
+ *  drift from the one `curl` users get from the same route. */
+function filenameFrom(header) {
+  return /filename="([^"]+)"/.exec(header || '')?.[1] || 'sundial.json'
+}
+
 async function req(path, options) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -62,4 +70,19 @@ export const api = {
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   remove: (id) => req(`/api/blocks/${id}`, { method: 'DELETE' }),
+  // Leaving. The export is the one read that arrives as a download, so it is fetched whole
+  // rather than through `req`: the reply's own Content-Disposition names the file.
+  exportAll: async () => {
+    const res = await fetch('/api/export')
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(message(body, res))
+    return { document: body, filename: filenameFrom(res.headers.get('content-disposition')) }
+  },
+  // Destructive, and the phrase is the whole guard: an accidental call has to be impossible,
+  // and a call found in a log has to be readable. The server holds the same string.
+  importAll: (document) =>
+    req('/api/import', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: CONFIRMATION, document }),
+    }),
 }
