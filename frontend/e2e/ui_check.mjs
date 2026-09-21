@@ -160,11 +160,21 @@ check('the content is taller than the window it scrolls in', await page.evaluate
 // position the app's own rule implies, in the browser's clock, and assert that: stronger than a
 // sign test, and true at every hour.
 {
-  // HOUR_PX is a Node constant: page.evaluate runs in the browser, so it has to be handed in
-  const want = await page.evaluate((hourPx) => {
+  // HOUR_PX is a Node constant: page.evaluate runs in the browser, so it has to be handed in.
+  //
+  // The clamp is the half of this that cost a red run to find: a browser will not scroll past
+  // the end, so late in the day "half an hour ago" sits further down than the content below it
+  // allows and the app lands on the last screenful. Comparing against the unclamped number
+  // passes all morning and fails at 15:19 UTC — a test measuring the hour, not the app.
+  const { want, room } = await page.evaluate((hourPx) => {
     const now = new Date()
     const focusMin = now.getHours() * 60 + now.getMinutes() - 30
-    return Math.max(0, (focusMin / 60) * hourPx - 60)
+    const scroller = document.querySelector('.scroller')
+    const roomLeft = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+    return {
+      room: roomLeft,
+      want: Math.min(roomLeft, Math.max(0, (focusMin / 60) * hourPx - 60)),
+    }
   }, HOUR_PX)
   const at = await until(async () => {
     const back = await page.evaluate(() => document.querySelector('.scroller')?.scrollTop ?? 0)
@@ -173,7 +183,8 @@ check('the content is taller than the window it scrolls in', await page.evaluate
   check(
     'and opening the day lands half an hour before now, not at midnight',
     at !== null,
-    `at ${await page.evaluate(() => Math.round(document.querySelector('.scroller')?.scrollTop ?? -1))}px, expected ${Math.round(want)}px`,
+    `at ${await page.evaluate(() => Math.round(document.querySelector('.scroller')?.scrollTop ?? -1))}px, ` +
+      `expected ${Math.round(want)}px with ${Math.round(room)}px of room`,
   )
 }
 check('the now line is on today', (await page.locator('.now').count()) === 1)
