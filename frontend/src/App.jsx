@@ -6,12 +6,14 @@ import {
 import { bucketOf } from './agenda'
 import { applyTheme, initialTheme, rememberTheme } from './theme'
 import { dayIsClear } from './art'
+import { syncNote } from './calendar'
 import { createLatest, createWriteQueue } from './saving'
 import Header from './components/Header'
 import Inbox from './components/Inbox'
 import Timeline from './components/Timeline'
 import Editor from './components/Editor'
 import Agenda from './components/Agenda'
+import CalendarPanel from './components/CalendarPanel'
 
 const VIEW_KEY = 'sundial-view'
 // Where a new task lands in a section that has nothing in it yet.
@@ -38,6 +40,12 @@ export default function App() {
   // mid-animation cannot cut the motion short.
   const [leaving, setLeaving] = useState([])
   const [settling, setSettling] = useState([])
+  // The calendar is context layered beside the plan, so it keeps its own state: a calendar
+  // that will not load must leave the day exactly as it was.
+  const [calendar, setCalendar] = useState(null)
+  const [calendarDay, setCalendarDay] = useState({ day: null, events: [] })
+  const [syncing, setSyncing] = useState(false)
+  const [calendarNote, setCalendarNote] = useState('')
   const timers = useRef([])
 
   const contentRef = useRef(null)
@@ -48,6 +56,8 @@ export default function App() {
   const writes = useRef(createWriteQueue())
   const dayLoad = useRef(createLatest())
   const weekLoad = useRef(createLatest())
+  const calendarLoad = useRef(createLatest())
+  const askedToSync = useRef(false)
   const inFlight = useRef(null)
 
   useEffect(() => { applyTheme(theme) }, [theme])
@@ -85,6 +95,64 @@ export default function App() {
   }, [day])
 
   useEffect(() => { load() }, [load])
+
+  const loadCalendar = useCallback(async (which) => {
+    const ticket = calendarLoad.current.begin()
+    try {
+      const [status, day] = await Promise.all([api.calendars(), api.events(which)])
+      if (!calendarLoad.current.isCurrent(ticket)) return
+      setCalendar(status)
+      setCalendarDay(day)
+    } catch {
+      // Context, not the plan: a calendar that will not read is not an error worth the
+      // header. The panel says "not connected" or keeps the last good answer.
+    }
+  }, [])
+
+  const runSync = useCallback(
+    async (ifStaleSeconds = 0) => {
+      setSyncing(true)
+      try {
+        const result = await api.syncCalendars(ifStaleSeconds)
+        setCalendarNote(syncNote(result))
+        await loadCalendar(day)
+      } catch (e) {
+        setCalendarNote(e.message)
+      } finally {
+        setSyncing(false)
+      }
+    },
+    [day, loadCalendar],
+  )
+
+  useEffect(() => {
+    if (view !== 'calendar') return
+    loadCalendar(day)
+  }, [view, day, loadCalendar])
+
+  /** Opening the calendar view is the schedule. The server decides whether that means going
+   *  to iCloud, so switching views never hammers it, and nothing runs in the background
+   *  while the app is shut — a choice, explained in docs/calendar-sync.md.
+   *
+   *  Waits for the status before asking: syncing with nothing to sync with produces a
+   *  refusal, and the rail would carry a filesystem path where a sentence belongs. */
+  useEffect(() => {
+    if (view !== 'calendar' || !calendar?.configured || askedToSync.current) return
+    askedToSync.current = true
+    runSync(900)
+  }, [view, calendar, runSync])
+
+  const toggleCalendar = useCallback(
+    async (ref, enabled) => {
+      try {
+        await api.setCalendar(ref, enabled)
+        await loadCalendar(day)
+      } catch (e) {
+        setCalendarNote(e.message)
+      }
+    },
+    [day, loadCalendar],
+  )
 
   /** Writes for one block go out one at a time, in the order they were asked for.
    *
@@ -353,6 +421,14 @@ export default function App() {
             onCapture={capture}
             onPointerDown={beginDrag}
             onSelect={setSelectedId}
+          />
+          <CalendarPanel
+            status={calendar}
+            events={calendarDay.events}
+            busy={syncing}
+            note={calendarNote}
+            onSync={runSync}
+            onToggle={toggleCalendar}
           />
         </aside>
       )}

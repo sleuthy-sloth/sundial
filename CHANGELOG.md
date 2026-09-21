@@ -1,5 +1,84 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.3.0 — 2026-09-21
+
+Calendar sync: the half that was missing. The schema, the iCalendar conversion and the
+conflict rules were already written and tested, and nothing could get an event in. Now
+iCloud does, read-only, over CalDAV with an app-specific password.
+
+### Added
+
+- **A CalDAV transport** (`backend/caldav.py`): principal and calendar-home discovery, the
+  calendar list with each one's own colour and ctag, and a `calendar-query` REPORT over a
+  time window. No database in it, so the protocol is tested against scripted HTTP replies
+  and the storage rules are tested without a server.
+- **A sync engine** (`backend/calendar_service.py`) and the endpoints that expose it:
+  `GET /api/calendars`, `POST /api/calendars/sync` (with `if_stale_seconds`, so opening a
+  view can ask without hammering iCloud), `PATCH /api/calendars` to switch a calendar off,
+  and `GET /api/events?day=` for the day's own events.
+- **The calendar panel**, in the rail: what is connected, when it last synced, each calendar
+  with its colour and a shown/hidden control, and what is on the day. Read-only, and the
+  only controls in it change what sundial does, never the calendar.
+- `scripts/check_calendar.py`: connect by hand, list the calendars, count the events, and
+  `--sync` to store them. Exit codes meant for a timer — 0 fine, 1 not configured, 2 refused.
+- `docs/calendar-sync.md`, the specification, including why a fetch has to complete before
+  anything is deleted from it.
+
+### Changed
+
+- `backend/store.py` holds the database handle, so the API and the sync engine can both open
+  a connection without importing each other.
+- `httpx` is a runtime dependency now rather than only a test one.
+- The README's status section had been sitting at v0.1.2 through three releases.
+
+### Fixed
+
+- **A first sync imported nothing at all.** Discovery stored each calendar's ctag, and the
+  sync that followed compared that value against itself and skipped the fetch — so a newly
+  connected calendar stayed empty until something else in iCloud happened to change. A ctag
+  is a cursor, not a description: it is written only after a fetch that worked.
+- Event rows were stamped with the *object's* own href as their `calendar_ref` instead of the
+  collection's. With foreign keys enforced that insert fails outright. The type checker
+  found it; a test now pins the collection in place.
+- The panel hid stored events whenever the credentials file was missing, so moving the
+  config looked like losing the calendar. Being able to sync and having already synced are
+  different facts: the status line says "not connected · last synced 12 min ago", and the
+  events stay visible.
+- The automatic sync fired before the status had loaded, so a rail built to say
+  "add icloud.env" instead displayed a filesystem path as its note.
+
+### Notes
+
+- **What a sync may delete is bounded twice.** Only a fetch that completed may reconcile at
+  all — a REPORT that answered 500 must not read as "these events stopped existing" — and
+  only rows that fetch actually asked about, which means an event starting inside the window
+  and a series only when its first occurrence is. Falsified by removing the first rule: the
+  test fails and both stored events are gone.
+- Mapping a calendar's colour onto sundial's eight took four attempts, all documented in
+  `_colour_distance`. Distance in RGB put Apple's red on amber. So did redmean. So did plain
+  Euclidean distance in Lab — because rose is a dark *desaturated* brick, and amber carries
+  more red in every one of those spaces. Red's hue is 25° from rose's and 48° from amber's,
+  and hue is what the person picking a colour meant.
+- **The visual snapshots were passing on luck.** A tightened threshold caught
+  `desktop-timeline-light` differing by 0.16% of pixels with a mean of 1.06 — the timeline's
+  scroll position follows the clock (half an hour before now, minus 60px), so a couple of
+  minutes between two runs shifts the whole column a couple of pixels. Every earlier pass had
+  simply happened to land in the same minute. The snapshot block now freezes the page's clock
+  at a fixed moment, so the pictures contain a fixed time, and a difference in them is a real
+  difference.
+- The social-card check fetched the *address the page advertises*. Since a deployment sets
+  `VITE_APP_URL` so crawlers get an absolute address, that fetch is cross-origin from whatever
+  server the checks run against, and it took the run down with an uncaught `TypeError`. It now
+  fetches the same path from the server under test and checks the advertised address
+  separately — the more interesting assertion, as it happens.
+- The timeline click check assumed the app's pixel scale rather than measuring it; at an exact
+  half-step boundary that decided which way the snap went. It reads `--hour-h` from the page
+  now, and allows a snap step of rounding.
+- An edit arriving in the same second as our own sync is deferred rather than applied: the
+  inherited rule is that a tie goes to the local copy, and the clock cannot separate the two.
+  It is not lost — the next sync takes it. A `SEQUENCE` bump decides it immediately, which is
+  what a calendar actually sends.
+
 ## 0.2.3 — 2026-09-21
 
 Focus, semantics, and a way to see a visual change before it ships.
