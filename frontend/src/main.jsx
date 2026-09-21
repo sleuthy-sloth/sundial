@@ -17,4 +17,24 @@ if ('serviceWorker' in navigator) {
       console.warn('service worker not registered:', err.message)
     })
   })
+
+  // A worker taking over mid-visit means a newer app is on the server. Take it, but not
+  // while somebody is looking at the screen: reload on the way out instead, so opening
+  // the app again is what shows the new one. The guard on there having been a controller
+  // before stops the first install from reloading the page under the reader.
+  const handedOver = Boolean(navigator.serviceWorker.controller)
+  let waiting = false
+
+  const take = () => {
+    if (document.visibilityState === 'hidden') window.location.reload()
+    else waiting = true
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (handedOver) take()
+  })
+
+  document.addEventListener('visibilitychange', () => {
+    if (waiting && document.visibilityState === 'hidden') window.location.reload()
+  })
 }

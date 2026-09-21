@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from spa import SpaStaticFiles
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("SUNDIAL_DB", ROOT / "sundial.db"))
@@ -173,7 +174,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="sundial",
-    version="0.1.1",
+    version="0.1.2",
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
@@ -365,7 +366,7 @@ def _pick_color() -> int:
 
 # SPA. Mounted last so it only catches what the API routes above did not.
 if STATIC.is_dir():
-    app.mount("/", StaticFiles(directory=STATIC, html=True), name="spa")
+    app.mount("/", SpaStaticFiles(directory=STATIC, html=True), name="spa")
 else:
 
     @app.get("/")

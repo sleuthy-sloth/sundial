@@ -75,16 +75,22 @@ One Python process serves the API and the built app on the same origin, so there
 CORS to get wrong and no second port to think about. SQLite holds the data, in WAL mode:
 `scripts/backup.py` is how you copy it (see [Backup and restore](#backup-and-restore)).
 
+The built app is served with an explicit cache policy rather than the browser's guess: the
+shell, the manifest and the service worker must be revalidated on every request, while the
+content-hashed files under `/assets` are kept for a year. That split is what lets an
+upgrade arrive on the phone instead of being shadowed by yesterday's copy.
+
 ```
 backend/app.py              the API and the block rules (FastAPI)
 backend/calendar_sync.py    iCalendar ⇄ the local event model, and the conflict rules
 backend/migrations/         numbered .sql files, applied on boot
-backend/test_*.py           77 tests
+backend/spa.py              serving the built app, and how long each file may be kept
+backend/test_*.py           82 tests
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 frontend/src/App.jsx        state and layout only
 frontend/src/components/    Header, WeekStrip, Agenda, TaskCard, Timeline, Block,
                             Inbox, Editor, TabBar, Glyph
-frontend/e2e/ui_check.mjs   91 browser checks, with real mouse input
+frontend/e2e/ui_check.mjs   95 browser checks, with real mouse input
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
@@ -133,9 +139,9 @@ the new schema stays, and the old code no longer knows how to read it.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 77 tests
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 82 tests
 cd frontend && npm test                                # 18 unit tests, node --test
-cd frontend && npm run check:ui                        # 91 browser checks
+cd frontend && npm run check:ui                        # 95 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -189,8 +195,9 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.1.1. This one was about trust rather than features: it keeps what you type, and the day
-view describes the day accurately. The honest gaps:
+v0.1.2. The last two were about trust rather than features: it keeps what you type, the day
+view describes the day accurately, and an upgrade now reaches the phone on its own. The
+honest gaps:
 
 - **Calendar sync is half built.** Two providers, one model: the schema, the iCalendar
   conversion and the conflict rules are written and tested; the transports are not. iCloud
@@ -198,8 +205,6 @@ view describes the day accurately. The honest gaps:
   CalDAV was switched off in 2024, so it needs the REST API behind OAuth.
 - No repeating tasks or routines yet.
 - Notifications: the service worker is in place and listening, nothing sends yet.
-- After an upgrade the service worker can still serve the previous app until the page is
-  reloaded. Versioned assets are the fix; a hard reload is the workaround.
 - On a wide window the timeline is taller than the viewport, so the page scrolls instead
   of the timeline, and the scroll-to-now when you open a day does nothing.
 

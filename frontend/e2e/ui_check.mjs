@@ -756,6 +756,39 @@ const boxOf = async (text) => {
 
   const regs = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)
   check('the service worker registered', regs >= 1, `${regs} registration(s)`)
+
+  // An upgrade only reaches the phone if the server says what may be kept. Both halves
+  // are needed: the shell and the worker script must be revalidated, and the hashed
+  // assets may be kept forever, because their names change when their contents do.
+  const shell = await page.evaluate(async () => {
+    const nav = await fetch('/', { cache: 'no-store' })
+    return { cacheControl: nav.headers.get('cache-control'), status: nav.status }
+  })
+  check('the shell is not left for the browser to guess about', shell.cacheControl === 'no-cache', String(shell.cacheControl))
+
+  const worker = await page.evaluate(async () => (await fetch('/sw.js')).headers.get('cache-control'))
+  check('and neither is the service worker script', worker === 'no-cache', String(worker))
+
+  const asset = await page.evaluate(async () => {
+    const html = await (await fetch('/', { cache: 'no-store' })).text()
+    const src = html.match(/\/assets\/[A-Za-z0-9._-]+\.js/)?.[0]
+    if (!src) return null
+    const response = await fetch(src)
+    return { src, cacheControl: response.headers.get('cache-control') }
+  })
+  check(
+    'while a hashed asset may be kept for good',
+    Boolean(asset && (asset.cacheControl || '').includes('immutable')),
+    asset ? `${asset.src}: ${asset.cacheControl}` : 'no script tag in the shell',
+  )
+
+  // The worker has to be the thing answering, or the offline shell is decoration.
+  let controlling = await page.evaluate(() => Boolean(navigator.serviceWorker.controller))
+  if (!controlling) {
+    await page.reload({ waitUntil: 'networkidle' })
+    controlling = await page.evaluate(() => Boolean(navigator.serviceWorker.controller))
+  }
+  check('and the worker is the one serving the page', controlling)
 }
 
 // ---- clean up this run's seeds, then re-check the render against the API ----

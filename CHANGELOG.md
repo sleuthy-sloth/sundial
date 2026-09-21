@@ -1,5 +1,24 @@
 # What changed, and when. Dates, and what to do about them.
 
+## 0.1.2 — 2026-09-20
+
+### Fixed
+
+- **An upgrade reaches the phone by itself.** The server sent no `Cache-Control` at all,
+  which left the browser to guess a lifetime from each file's age — and it guessed wrong
+  for the two files whose names never change, so a phone could keep opening the previous
+  app (and the previous service worker) for a while after a deploy. The shell, the
+  manifest and the worker now say `no-cache` and are revalidated on every request, while
+  the content-hashed files under `/assets` are served as `immutable` for a year, which is
+  what their names allow. A worker taking over mid-visit now reloads on the way out rather
+  than under the reader's hands, so opening the app shows the new one.
+
+### Added
+
+- `backend/test_spa.py` — the cache policy, pinned against a directory shaped like the
+  build so it needs no build to run, plus browser checks that read the headers off the
+  live app and confirm the worker is the one serving the page.
+
 ## 0.1.1 — 2026-09-20
 
 Nothing here should surprise you when you upgrade: no migration is destructive, and the
