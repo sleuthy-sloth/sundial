@@ -1,5 +1,6 @@
 import { version } from '../../package.json'
 
+import { ROLLOVER_OPTIONS } from '../rollover'
 import CalendarPanel from './CalendarPanel'
 import Notifications from './Notifications'
 import Routines from './Routines'
@@ -20,6 +21,10 @@ import YourData from './YourData'
  *
  * Routines are here for the same reason and one more: a rule with no day on screen this week
  * has nothing to tap, so the place that lists what this copy holds is the only way back to it.
+ *
+ * "Unfinished scheduled work" is a setting rather than a control on the day, even though the day is
+ * where it shows: it is a decision about what the app may do on its own, and a decision like that
+ * belongs where you go looking for it rather than under the thing it acts on.
  */
 export default function Profile({
   status,
@@ -34,6 +39,8 @@ export default function Profile({
   onTheme,
   routines,
   onOpenRoutine,
+  rollover,
+  onRollover,
 }) {
   return (
     <div className="profile">
@@ -53,6 +60,30 @@ export default function Profile({
       </p>
 
       <Routines routines={routines} onOpen={onOpenRoutine} />
+
+      <h2>Unfinished work</h2>
+      {/* Three answers to one question, so three radios rather than a switch: a switch would have
+          to leave one of the answers unnamed. The labels are the whole interface — there is no
+          "advanced" behind them, and no default hidden from the person choosing it. */}
+      <fieldset className="set-choice">
+        <legend className="set-label">Unfinished scheduled work</legend>
+        {ROLLOVER_OPTIONS.map((option) => (
+          <label key={option.value} className="choice">
+            <input
+              type="radio"
+              name="rollover"
+              value={option.value}
+              checked={rollover === option.value}
+              onChange={() => onRollover(option.value)}
+            />
+            <span className="choice-label">{option.label}</span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="note">
+        Only your own unfinished blocks count — never a calendar event, and never a day of a
+        routine. Nothing is called late, and nothing is written to a day you have already had.
+      </p>
 
       <h2>Appearance</h2>
       <div className="set-row">

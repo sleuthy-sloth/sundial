@@ -97,7 +97,7 @@ def main() -> int:
         day = "2026-09-21"
         first = run("day", db, day=day)
         check("the app makes a database and answers", "blocks" in first)
-        check("every migration runs", schema_versions(db) == [1, 2, 3, 4, 5], str(schema_versions(db)))
+        check("every migration runs", schema_versions(db) == [1, 2, 3, 4, 5, 6], str(schema_versions(db)))
         standup = run("create", db, block={"title": "Standup", "day": day, "start_min": 540, "duration_min": 30})
         check("a plan can be saved", standup.get("title") == "Standup")
 
@@ -115,7 +115,7 @@ def main() -> int:
 
         after = run("day", db, day=day)
         titles = [b["title"] for b in after["blocks"]]
-        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5], str(schema_versions(db)))
+        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5, 6], str(schema_versions(db)))
         check("a day stored the old way is repaired", "Old plan" in titles)
         check("and found on the day it was meant for", any(b["id"] == old["id"] for b in after["blocks"]))
         check("the plans that were already fine are untouched", "Standup" in titles)

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+**Unfinished work waits for an answer instead of following you around.** A block you did not get to
+stays on the day it was planned for, and opening today offers it back in one section above the
+plan's four parts — *Left from yesterday*, with the hour it had, how long it takes, and three
+answers: **Today** (onto today, at that hour), **Anytime** (day and hour gone, back in the inbox),
+**Leave there** (nothing moves, and it stops asking for the rest of this browser's day). One
+sentence under the heading says the only thing worth knowing before a tap: moving one takes it off
+yesterday. That is all "move" means here — nothing is copied, so there is no record of where it
+was, and "leave there" is how it stays.
+
+Nothing moves on its own unless you choose it to. The setting is **You**'s first row that is not
+about a connection: ask me the next day, move to Anytime automatically, or leave on the original
+day. It is a row in a new `settings` table rather than a browser preference — the backup is the
+database, and a preference kept in one browser would be the one part of your setup a backup
+quietly drops — and the export format is version 3 for it. A version 2 file still imports: it
+promised fewer tables, and the setting it never heard of comes in at its default rather than
+refusing the file.
+
+Only real blocks qualify: `day = yesterday AND done = 0 AND day IS NOT NULL`. An inbox item fails
+the first clause, a finished block the second, and a routine's occurrence never gets that far,
+because an occurrence is a question asked of a rule rather than a row — rolling one forward would
+double-book it against the routine's own regenerated occurrence for today. Moving is the existing
+re-day PATCH: no rollover table, no provenance marker, no new way to write a block.
+
+"Leave there" is remembered in `sessionStorage`, keyed by the day, so it cannot outlive the day it
+was about and never becomes user data to export. The tone was the harder constraint: no count, no
+red, no word for being late, and the section is drawn in the same ink as the rest of the day — a
+browser check compares the two colours and fails if they ever part company.
+
+Four things pinned what was true before this and had to move with it: the migration list in
+`scripts/smoke_release.py`, what `migrate()` answers in `backend/test_app.py`, the export format
+version in `test_export.py`, `test_routines.py` and `datafile.test.js`, and the counts in
+`test_export.py`. The browser export check named five tables under "every table present" — it had
+lost the routines when they shipped — and now names all eight, `settings` among them.
+
+Counts: 403 backend tests, 118 unit, 276 browser checks.
+
 **A block can repeat, and a repeat is one rule rather than a row for every day it lands on.**
 "Mon · Wed · Fri at 06:30" is now a `routines` row that answers for the days it covers, and the
 only days with rows of their own are the ones you told something different, in

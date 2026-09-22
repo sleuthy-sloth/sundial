@@ -96,10 +96,10 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     before = everything()
 
     with store.db() as conn:
-        document = json.loads(json.dumps(export.dump(conn, 5)))  # through real JSON
+        document = json.loads(json.dumps(export.dump(conn, 6)))  # through real JSON
         assert export.counts(document) == {
             "calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
-            "events": 1, "sync_log": 1, "push_sent": 0,
+            "events": 1, "sync_log": 1, "push_sent": 0, "settings": 0,
         }
 
     # Empty it, the way a fresh install on another machine would be. Importing the same
@@ -107,15 +107,15 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     # deletes ever ran.
     emptied = dict(document, tables={name: [] for name in export.TABLES})
     with store.db() as conn:
-        export.replace(conn, export.check(emptied, 5))
+        export.replace(conn, export.check(emptied, 6))
     assert everything() == {name: [] for name in export.TABLES}, "the import was not a replace"
 
     # And take them back to where they started.
     with store.db() as conn:
-        written = export.replace(conn, export.check(document, 5))
+        written = export.replace(conn, export.check(document, 6))
     assert everything() == before, "the round trip lost or changed something"
     assert written == {"calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
-                       "events": 1, "sync_log": 1, "push_sent": 0}
+                       "events": 1, "sync_log": 1, "push_sent": 0, "settings": 0}
 
 
 def test_a_routine_and_the_days_it_was_told_otherwise_survive_a_round_trip(database):
@@ -335,7 +335,7 @@ def test_export_downloads_a_named_file_of_the_right_shape(client):
     )
     document = answer.json()
     assert document["format"] == export.FORMAT
-    assert document["schema_version"] == 5
+    assert document["schema_version"] == 6
     assert len(document["tables"]["blocks"]) == 2
     assert "push_subscriptions" not in document["tables"]
 
@@ -390,7 +390,8 @@ def test_the_round_trip_works_over_http_and_keeps_a_way_back(client):
     assert answer.status_code == 200
     answer = answer.json()
     assert answer["replaced"] == {"calendars": 1, "routines": 0, "routine_overrides": 0,
-                                  "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0}
+                                  "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
+                                  "settings": 0}
     assert everything() == before
 
     # The database it replaced is copied first and named in the answer, so a mistaken

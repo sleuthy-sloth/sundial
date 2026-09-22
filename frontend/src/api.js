@@ -66,6 +66,12 @@ export const api = {
   unsubscribePush: (endpoint) =>
     req('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
   testPush: () => req('/api/push/test', { method: 'POST' }),
+  // The app's own settings. They live in the database rather than in this browser, which is why
+  // they are read and written here like any other content: the export carries the database, so a
+  // preference kept on one device would be the one thing a backup silently drops.
+  settings: (signal) => req('/api/settings', { signal }),
+  patchSettings: (changes) =>
+    req('/api/settings', { method: 'PATCH', body: JSON.stringify(changes) }),
   create: (block) => req('/api/blocks', { method: 'POST', body: JSON.stringify(block) }),
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),

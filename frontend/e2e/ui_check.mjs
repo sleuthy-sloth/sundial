@@ -1934,9 +1934,13 @@ const wantThemeLight = async () => {
   check(
     'and it is a complete export, every table present',
     document.format === 'sundial-export' &&
-      ['calendars', 'blocks', 'events', 'sync_log', 'push_sent'].every((t) =>
-        Array.isArray(document.tables[t]),
-      ),
+      // The eight the format promises, named here rather than read from the app: this is the check
+      // that would notice a table quietly dropping out of the file. It had lost the routines when
+      // they shipped, and `settings` is where unfinished work is remembered.
+      [
+        'calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
+        'settings',
+      ].every((t) => Array.isArray(document.tables[t])),
     `format ${document.format}, version ${document.version}`,
   )
   check(
@@ -2285,6 +2289,268 @@ const wantThemeLight = async () => {
   const leftover = (await req(`/day?day=${today}`)).blocks.filter((b) => mine.includes(b.title))
   check('and cleans up after itself', leftover.length === 0,
     leftover.length ? `${leftover.length} of its blocks left on today` : 'today is as it was')
+}
+
+// ---- what is left from yesterday -------------------------------------------------------------
+// Yesterday's unfinished work gets a quiet path into today, and here the tone is as much of the
+// feature as the movement is: the section is checked for the words it uses, for the colour it does
+// not use, and for the fact that each of the three answers does exactly what it says.
+//
+// The setting is checked from both ends — the panel that offers it, and the mode nobody taps — and
+// it is put back the way it was found. Everything seeded here is removed again before the
+// snapshots, because a block left behind on today is what a picture of today would show.
+{
+  const AXE = require.resolve('axe-core/axe.min.js')
+  const shift = (iso, delta) => {
+    const d = new Date(`${iso}T12:00:00`)
+    d.setDate(d.getDate() + delta)
+    return d.toLocaleDateString('sv-SE')
+  }
+  const yesterday = shift(today, -1)
+  const seeds = []
+  const madeHere = []
+
+  /** A block by id, wherever it currently is: a day, or the inbox. */
+  const whereIs = async (id) => {
+    for (const day of [today, yesterday]) {
+      const found = (await blocksOn(day)).find((b) => b.id === id)
+      if (found) return found
+    }
+    return (await inboxNow()).find((b) => b.id === id) || null
+  }
+  /** The setting as the server has it. Pass a value to choose one first. */
+  const setting = async (value) => {
+    if (value) await req('/settings', { method: 'PATCH', body: JSON.stringify({ rollover: value }) })
+    return (await req('/settings')).rollover
+  }
+  const openToday = async () => {
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.locator('.tabs button[data-tab="today"]').click()
+    await page.waitForTimeout(400)
+  }
+  const rows = () => page.locator('.section-leftover .row')
+  const rowWith = (title) => page.locator('.section-leftover .row', { hasText: title })
+
+  try {
+    check('unfinished work is asked about by default', (await setting(null)) === 'ask', await setting(null))
+
+    const dentist = await spawn({
+      title: 'ui-check left dentist', day: yesterday, start_min: 9 * 60, duration_min: 20, color: 'sky',
+    })
+    const laundry = await spawn({
+      title: 'ui-check left laundry', day: yesterday, start_min: 10 * 60, duration_min: 45, color: 'teal',
+    })
+    const finished = await spawn({
+      title: 'ui-check left finished', day: yesterday, start_min: 11 * 60, duration_min: 30,
+    })
+    seeds.push(dentist, laundry, finished)
+    await req(`/blocks/${finished.id}`, { method: 'PATCH', body: JSON.stringify({ done: true }) })
+
+    // A rule that lands on yesterday as well as today, because that is the collision the plan warns
+    // about: rolling yesterday's occurrence forward would be the second 07:00 on today.
+    const rule = await req('/routines', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'ui-check left routine', start_min: 7 * 60, duration_min: 30,
+        recurrence_kind: 'daily', start_date: yesterday,
+      }),
+    })
+    madeHere.push(`/routines/${rule.id}`)
+
+    await openToday()
+
+    const heading = await textOf('.leftover-name')
+    const groupHeads = await page.locator('.group-head').count()
+    check(
+      'yesterday\u2019s unfinished work is offered in its own words, not as a fifth part of the day',
+      /left from yesterday/i.test(heading) && groupHeads === 4,
+      `${heading} with ${groupHeads} of the day`,
+    )
+
+    const offered = (await rows().allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+    check('and it is the unfinished ones, with how long they take', offered.length === 2,
+      offered.join(' | '))
+    check(
+      'the finished one is not offered, and neither is the routine\u2019s own day',
+      !offered.some((t) => /left finished|left routine/.test(t)) &&
+        (await blocksOn(yesterday)).some((b) => b.source === 'routine') &&
+        (await req(`/day?day=${today}`)).leftover.every((b) => b.source === 'block'),
+      'a rule already has today; a finished block is finished',
+    )
+
+    const answers = (await page.locator('.section-leftover .leftover-do').allInnerTexts()).map((t) => t.trim())
+    check(
+      'each one offers the same three answers, in the plan\u2019s words',
+      answers.join(' ') === 'Today Anytime Leave there Today Anytime Leave there',
+      answers.join(' '),
+    )
+    const thumb = await page
+      .locator('.section-leftover .leftover-do')
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
+    check('and every answer is a thumb\u2019s height', thumb.every((h) => h >= 44), thumb.join(' '))
+
+    const tone = await page.evaluate(() => {
+      const ink = (selector) => {
+        const el = document.querySelector(selector)
+        return el ? getComputedStyle(el).color : null
+      }
+      return { mine: ink('.leftover-name'), theirs: ink('.group-name') }
+    })
+    check(
+      'and it is drawn in the ink the rest of the day uses, with nothing late in it',
+      tone.mine !== null &&
+        tone.mine === tone.theirs &&
+        !/\b(overdue|late|missed|failed|behind)\b/i.test(await textOf('.section-leftover')),
+      `${tone.mine} against ${tone.theirs}`,
+    )
+
+    // The keyboard reaches the new controls and the house ring is drawn on them. Walking from the
+    // capture field, which is the control just before this section in the document.
+    await page.locator('.capture-card input').click()
+    await page.keyboard.press('Tab')
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement
+      const cs = getComputedStyle(el)
+      return {
+        what: `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`,
+        width: parseFloat(cs.outlineWidth) || 0,
+        style: cs.outlineStyle,
+      }
+    })
+    check(
+      'the keyboard lands on the first answer, with the ring every other control gets',
+      ring.what.startsWith('button.leftover-do') && ring.style !== 'none' && ring.width >= 2,
+      `${ring.what} ${ring.style} ${ring.width}px`,
+    )
+
+    // axe, over the section itself: a heading, a sentence, and three buttons that have to have
+    // names. Scoped, so a failure here is about this and not about whatever else is on the page.
+    if (!(await page.evaluate(() => typeof window.axe !== 'undefined'))) {
+      await page.addScriptTag({ path: AXE })
+    }
+    const violations = await page.evaluate(async () => {
+      const found = await window.axe.run(document.querySelector('.section-leftover'), {
+        runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] },
+      })
+      return found.violations.map((v) => `${v.id} [${v.impact}] ${v.nodes.map((n) => n.target.join(' ')).slice(0, 2).join(', ')}`)
+    })
+    check(
+      'the section has no automated accessibility violations',
+      violations.length === 0,
+      violations.join(' | ').slice(0, 300) || 'clean',
+    )
+
+    // Today: onto today, at the hour it was already planned for.
+    await rowWith('ui-check left dentist').locator('button', { hasText: 'Today' }).click()
+    const arrived = await until(async () => {
+      const b = await whereIs(dentist.id)
+      return b && b.day === today && b.start_min === 9 * 60 ? b : null
+    })
+    check('one answer puts it on today, at the hour it had', Boolean(arrived),
+      arrived ? `${arrived.day} ${arrived.start_min}` : 'not moved')
+    check('and it leaves the section behind', Boolean(await until(async () => (await rows().count()) === 1)))
+    check(
+      'and it turns up in its own part of today',
+      Boolean(await until(async () =>
+        (await page.locator('.section-morning .row', { hasText: 'ui-check left dentist' }).count()) === 1)),
+    )
+
+    // Anytime: the hour goes with the day.
+    await rowWith('ui-check left laundry').locator('button', { hasText: 'Anytime' }).click()
+    const unscheduled = await until(async () => {
+      const b = await whereIs(laundry.id)
+      return b && b.day === null && b.start_min === null ? b : null
+    })
+    check('and the second answer takes the hour away as well as the day', Boolean(unscheduled))
+    check(
+      'and the section goes when there is nothing left in it',
+      Boolean(await until(async () => (await page.locator('.section-leftover').count()) === 0)),
+    )
+    check(
+      'and it waits in Anytime rather than on the day',
+      Boolean(await until(async () =>
+        (await page.locator('.section-anytime .row', { hasText: 'ui-check left laundry' }).count()) === 1)),
+    )
+
+    // Leave there: nothing moves, and this tab stops asking for the rest of the day.
+    const stays = await spawn({
+      title: 'ui-check left stays', day: yesterday, start_min: 8 * 60, duration_min: 15,
+    })
+    seeds.push(stays)
+    await openToday()
+    check('leaving it there starts from being asked about it', (await rows().count()) === 1,
+      `${await rows().count()} row(s)`)
+    await rowWith('ui-check left stays').locator('button', { hasText: 'Leave there' }).click()
+    check(
+      'and leaving it alone takes it out of the section without moving it',
+      Boolean(await until(async () => (await page.locator('.section-leftover').count()) === 0)) &&
+        (await whereIs(stays.id)).day === yesterday,
+    )
+    await openToday()
+    check(
+      'and it does not come back at you again today',
+      (await page.locator('.section-leftover').count()) === 0,
+      'the answer was "not now", not "ask me again in a minute"',
+    )
+
+    // The setting, in the panel where a setting belongs.
+    await page.locator('.tabs button[data-tab="you"]').click()
+    await page.waitForTimeout(400)
+    const options = (await page.locator('.set-choice .choice').allInnerTexts()).map((t) => t.trim())
+    const chosenCount = await page.locator('.set-choice input:checked').count()
+    const defaultChosen = await page
+      .locator('.set-choice input[value="ask"]')
+      .evaluateAll((els) => els.some((e) => e.checked))
+    check(
+      'the setting is named and offers all three answers, with the default chosen',
+      (await textOf('.set-choice .set-label')) === 'Unfinished scheduled work' &&
+        options.join(' / ') ===
+          'Ask me the next day / Move to Anytime automatically / Leave on the original day' &&
+        chosenCount === 1 &&
+        defaultChosen,
+      `${options.join(' / ')}; ${chosenCount} chosen`,
+    )
+    const choiceSizes = await page
+      .locator('.set-choice .choice')
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
+    check('and each answer is a thumb\u2019s height', choiceSizes.every((h) => h >= 44), choiceSizes.join(' '))
+
+    // The tap is guarded rather than assumed: a panel that is not on the page should read as this
+    // check failing, not as the suite stopping before its own clean-up.
+    const anytimeOption = page.locator('.set-choice input[value="anytime"]')
+    const chooseable = await anytimeOption.count()
+    check('and the automatic answer is there to be chosen', chooseable === 1, `${chooseable} on the panel`)
+    if (chooseable === 1) await anytimeOption.check()
+    check(
+      'choosing one stores it on the server rather than in this browser',
+      Boolean(await until(async () => (await setting(null)) === 'anytime')),
+    )
+
+    const automatic = await spawn({
+      title: 'ui-check left automatic', day: yesterday, start_min: 13 * 60, duration_min: 20,
+    })
+    seeds.push(automatic)
+    await openToday()
+    check(
+      'and with that chosen the work moves itself, without being asked',
+      Boolean(await until(async () => {
+        const b = await whereIs(automatic.id)
+        return b && b.day === null ? b : null
+      }, 8000)),
+    )
+    check(
+      'and nothing is drawn for work that has already been dealt with',
+      (await page.locator('.section-leftover').count()) === 0,
+    )
+
+    await setting('ask')
+    check('the check leaves the setting where it found it', (await setting(null)) === 'ask')
+  } finally {
+    for (const block of seeds) await req(`/blocks/${block.id}`, { method: 'DELETE' }).catch(() => {})
+    for (const path of madeHere) await req(path, { method: 'DELETE' }).catch(() => {})
+    await setting('ask')
+    await openToday()
+  }
 }
 
 // ---- visual regression snapshots ------------------------------------------------------------

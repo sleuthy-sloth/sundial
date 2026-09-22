@@ -34,7 +34,7 @@ function good(overrides = {}) {
   return {
     format: FORMAT,
     version: VERSION,
-    schema_version: 5,
+    schema_version: 6,
     exported_at: '2026-09-21T12:00:00+00:00',
     tables: {
       calendars: [{ ref: 'home' }],
@@ -44,6 +44,7 @@ function good(overrides = {}) {
       events: [{ id: 'e1' }],
       sync_log: [],
       push_sent: [],
+      settings: [],
     },
     ...overrides,
   }
@@ -54,7 +55,7 @@ test('a complete export is described in terms a person counts things in', () => 
   assert.equal(seen.ok, true)
   assert.deepEqual(seen.counts, {
     calendars: 1, routines: 0, routine_overrides: 0, blocks: 2, events: 1, sync_log: 0,
-    push_sent: 0,
+    push_sent: 0, settings: 0,
   })
   assert.equal(seen.says, '2 blocks, 1 event and 1 calendar')
 })
@@ -95,12 +96,27 @@ test('a current file missing the routines table is still caught', () => {
   assert.match(seen.why, /no routines/)
 })
 
+test('a file from before settings is a whole file, and one missing them today is not', () => {
+  // Version 2 promised routines and no settings, so a version 2 file without the table is complete
+  // — the server takes it, and refusing it here would be a refusal with a wrong sentence on it.
+  const older = { ...good(), version: 2 }
+  older.tables = { ...older.tables }
+  delete older.tables.settings
+  assert.equal(summarize(older).ok, true, summarize(older).why)
+
+  const current = good()
+  delete current.tables.settings
+  const seen = summarize(current)
+  assert.equal(seen.ok, false)
+  assert.match(seen.why, /no settings/)
+})
+
 test('an empty export says so rather than listing zeroes', () => {
   const seen = summarize(
     good({
       tables: {
         calendars: [], routines: [], routine_overrides: [], blocks: [], events: [],
-        sync_log: [], push_sent: [],
+        sync_log: [], push_sent: [], settings: [],
       },
     }),
   )
@@ -166,6 +182,12 @@ test('the format, version and table list match backend/export.py', () => {
     names(older),
     TABLES_BY_VERSION[1],
     'what an old file promised has to be the same list in both halves too',
+  )
+  const before = /^\s+2: \(([^)]+)\),$/m.exec(src)?.[1]
+  assert.deepEqual(
+    names(before),
+    TABLES_BY_VERSION[2],
+    'and so does the version that carried routines and no settings',
   )
   assert.deepEqual(TABLES_BY_VERSION[VERSION], TABLES, 'the newest version is the whole list')
 })

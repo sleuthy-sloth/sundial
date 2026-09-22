@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from clock import now_iso, today
 from schemas.blocks import BlockIn, BlockPatch
-from services import routines
+from services import rollover, routines
 from services.blocks import PALETTE, get_block, pick_color, row_to_dict
 from services.scheduling import check_fits, validate_day
 from store import db
@@ -26,9 +26,15 @@ def get_day(day: Optional[str] = None) -> dict:
     planned time, ticked off and dragged. They carry `source: "routine"` and the routine and day
     they came from, which is everything the frontend needs to send a write to the rule instead of
     to a row: nothing is written for an occurrence until you change it.
+
+    `leftover` is the fourth list and the only one that is not on the day it is about: the
+    unfinished blocks of the day before, which Today offers to take in. It is empty for every day
+    except today, and it is read and not acted on — this route never moves anything. See
+    `services/rollover.py` for why a routine occurrence and a calendar event can never be in it.
     """
     day = day or today()
     validate_day(day)
+    today_iso = today()
     with db() as conn:
         scheduled = conn.execute(
             "SELECT * FROM blocks WHERE day = ? ORDER BY start_min", (day,)
@@ -37,6 +43,7 @@ def get_day(day: Optional[str] = None) -> dict:
             "SELECT * FROM blocks WHERE day IS NULL ORDER BY updated_at DESC"
         ).fetchall()
         occurrences = routines.occurrences_on(conn, day)
+        leftover = rollover.leftover_for(conn, day, today_iso)
 
     blocks = [row_to_dict(r) for r in scheduled]
     blocks.extend(occurrences)
@@ -46,9 +53,10 @@ def get_day(day: Optional[str] = None) -> dict:
 
     return {
         "day": day,
-        "today": today(),
+        "today": today_iso,
         "blocks": blocks,
         "inbox": [row_to_dict(r) for r in inbox],
+        "leftover": leftover,
     }
 
 
