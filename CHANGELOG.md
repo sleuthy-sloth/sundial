@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+**A day you wrote once can be put on a day, and it never puts itself there.** A **template** is a
+list of lines — a name, an hour or none, how long, a colour — that holds still until you ask for it.
+**You** lists the ones you have and is where they are made, renamed, duplicated, filled in and
+deleted; **Today** offers *Apply template*, which is a button and then the one you want. It is not a
+routine, and the difference is the whole point: a routine lands on its own because you said every
+Monday, a template lands because you tapped it, on the day you named.
+
+Applying adds blocks beside whatever the day already held. Nothing is read, moved or replaced, so a
+day that already has a plan on it keeps every minute of it; a line with no hour lands in Anytime;
+and applying twice adds everything a second time rather than noticing and skipping. Collisions are
+allowed, the way the day view already allows them — two lines at nine o'clock are two blocks at nine
+o'clock. Applying is one request and one transaction rather than one per block, so a workday cannot
+arrive half applied. Nothing records which template made which block, so there is no "remove what I
+just applied": the ids come back in the answer, which is what a later courtesy could use.
+
+Two more tables, `templates` and `template_blocks`, and the export format is version 4 for them. A
+version 3 file still imports — it promised fewer tables, and it simply has no templates. The lines of
+a template are replaced as a whole ordered list when you edit them, because the order is part of
+what you are writing, which is why moving one line is one write and not three.
+
+Counts: 426 backend tests, 128 unit, 302 browser checks. Four visual baselines were re-captured,
+because the plan screens gained a control; the timeline and icon shots are unchanged.
+
 **Unfinished work waits for an answer instead of following you around.** A block you did not get to
 stays on the day it was planned for, and opening today offers it back in one section above the
 plan's four parts — *Left from yesterday*, with the hour it had, how long it takes, and three

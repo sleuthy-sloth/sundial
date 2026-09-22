@@ -115,7 +115,7 @@ def main() -> int:
 
         after = run("day", db, day=day)
         titles = [b["title"] for b in after["blocks"]]
-        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5, 6], str(schema_versions(db)))
+        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5, 6, 7], str(schema_versions(db)))
         check("a day stored the old way is repaired", "Old plan" in titles)
         check("and found on the day it was meant for", any(b["id"] == old["id"] for b in after["blocks"]))
         check("the plans that were already fine are untouched", "Standup" in titles)
