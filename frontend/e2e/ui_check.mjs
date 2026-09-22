@@ -2635,9 +2635,15 @@ const wantThemeLight = async () => {
     check('and it starts with no lines rather than a pretend one',
       Boolean(workday) && workday.items.length === 0,
       workday ? `${workday.items.length} line(s)` : 'no template')
-    check('and the row says it is empty rather than showing a zero',
-      /Nothing in it yet/.test(await textOf(`${row(tid)} .template-what`)),
-      await textOf(`${row(tid)} .template-what`))
+    // The panel is a round trip behind a write, so the row itself is waited for: the API having
+    // the template is not the same as the row being on the screen. Found by CI, which is fast
+    // enough to read the screen before React has re-rendered it.
+    const empty = await until(async () => {
+      const said = await textOf(`${row(tid)} .template-what`)
+      return /Nothing in it yet/.test(said) ? said : null
+    })
+    check('and the row says it is empty rather than showing a zero', Boolean(empty),
+      empty || 'the row never said anything')
     check('and there is nothing to apply yet, so that button is off',
       await page.locator(`${row(tid)} .template-apply-to`).isDisabled())
 
@@ -2677,10 +2683,12 @@ const wantThemeLight = async () => {
       check('and a line left with no hour stays in Anytime',
         Boolean(second) && second.items[1].start_min === null,
         second ? JSON.stringify(second.items.map((i) => [i.title, i.start_min])) : 'not saved')
-      check('and the row counts what is in it and what waits in Anytime',
-        /2 items/.test(await textOf(`${row(tid)} .template-what`)) &&
-          /1 anytime/.test(await textOf(`${row(tid)} .template-what`)),
-        await textOf(`${row(tid)} .template-what`))
+      const counted = await until(async () => {
+        const said = await textOf(`${row(tid)} .template-what`)
+        return /2 items/.test(said) && /1 anytime/.test(said) ? said : null
+      })
+      check('and the row counts what is in it and what waits in Anytime', Boolean(counted),
+        counted || await textOf(`${row(tid)} .template-what`))
 
       // The order is part of the template, so moving a line is a write of the whole list.
       await page.locator(`${row(tid)} .item-down`).first().click()
@@ -2729,9 +2737,12 @@ const wantThemeLight = async () => {
       await page.locator('.template-apply-open').click()
       await until(async () => (await page.locator('.template-pick').count()) >= 1)
       const pick = page.locator(`.template-pick[data-template-id="${tid}"]`)
-      check('and open it lists the templates by name and by what is in them',
-        (await pick.count()) === 1 && /2 items/.test(await pick.innerText()),
-        (await pick.count()) === 1 ? await pick.innerText() : 'not listed')
+      const listed = await until(async () => {
+        const said = (await pick.count()) === 1 ? await pick.innerText() : ''
+        return /2 items/.test(said) ? said : null
+      })
+      check('and open it lists the templates by name and by what is in them', Boolean(listed),
+        listed || 'not listed')
       const size = await pick.boundingBox()
       check('and each one is a thumb\u2019s height', Boolean(size) && size.height >= 44,
         `${Math.round(size ? size.height : 0)}px`)
@@ -2747,9 +2758,12 @@ const wantThemeLight = async () => {
         Boolean(twice) && twice.blocks.filter((b) => b.title === 'Gym').length ===
           beforeToday.filter((b) => b.title === 'Gym').length + 2,
         twice ? `${twice.blocks.filter((b) => b.title === 'Gym').length} Gym(s)` : 'nothing landed')
-      check('and the note says what it did, in blocks',
-        /2 blocks added from ui-check workday/.test(await textOf('.template-note')),
-        await textOf('.template-note'))
+      const said = await until(async () => {
+        const note = await textOf('.template-note')
+        return /2 blocks added from ui-check workday/.test(note) ? note : null
+      })
+      check('and the note says what it did, in blocks', Boolean(said),
+        said || await textOf('.template-note'))
 
       // Duplicate, rename and delete: the rest of the plan's list, from the panel.
       await openYou()
@@ -2775,6 +2789,9 @@ const wantThemeLight = async () => {
         await page.locator(`${row(copy.id)} [data-template-act="delete"]`).click()
         const gone = await until(async () => (await called('ui-check weekend reset')) === null)
         check('and deleting a template deletes it, lines and all', Boolean(gone))
+        // The same round trip as the row above: the API has answered, and the screen is one render
+        // behind it. CI read 2 rows against 1 on the server before this waited.
+        await until(async () => (await page.locator(row(copy.id)).count()) === 0)
         check('and the list on screen is the list the server has',
           (await page.locator('.template-row').count()) === (await templatesNow()).length,
           `${await page.locator('.template-row').count()} row(s), ` +
