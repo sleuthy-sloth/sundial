@@ -564,15 +564,38 @@ const boxOf = async (text) => {
 
 // ---- an icon on a block ----
 {
-  // Noon, and nothing else in this run is on it. It used to be 14:00, where the seeded
-  // `ui-check pm` shares the hour: the shorter block is drawn last and wins the click, so this
-  // check read back the icon on `ui-check pm` and failed on a machine that had never run a
-  // different build. The check was red at HEAD; the hour, not the code, was what was wrong.
+  // An hour that "looks empty" is not enough to click in, because where the other blocks on this
+  // day land moves with the clock. The seeded `ui-check pm` sits at 14:00, which is where this
+  // check first put its block: the shorter block is drawn last and wins the click, so the icon
+  // was read back from the wrong row — and this was red on a machine that had never run another
+  // build. Moving it to noon moved the collision rather than removing it: the double-click check
+  // further up creates a filler block wherever the day happens to be scrolled (12:15 in a run
+  // that started at 05:35 UTC) and keeps it until the suite's cleanup at the end. So this check
+  // now finds a pixel inside its own block where its own block is on top, and says so if there
+  // is not one.
   const icon_block = await spawn({ title: 'ui-check icon', day: today, start_min: 12 * 60, duration_min: 60 })
   await page.reload({ waitUntil: 'networkidle' })
 
-  const box = await boxOf('ui-check icon')
-  await page.mouse.click(box.x + box.width / 2, box.y + 18)
+  const iconEl = page.locator('.content .block').filter({ hasText: 'ui-check icon' }).first()
+  await iconEl.scrollIntoViewIfNeeded()
+  const box = await iconEl.boundingBox()
+  let spot = await iconEl.evaluate((node) => {
+    const r = node.getBoundingClientRect()
+    const x = r.left + r.width / 2
+    for (let y = Math.round(r.top) + 10; y <= r.bottom - 6; y += 8) {
+      const at = document.elementFromPoint(x, y)
+      if (at && node.contains(at)) return { x, y }
+    }
+    return null
+  })
+  check(
+    'the block about to be given an icon is the one under the pointer',
+    spot !== null,
+    spot ? `at ${Math.round(spot.x)},${Math.round(spot.y)}` : 'another block covers all of it',
+  )
+  if (!spot) spot = { x: box.x + box.width / 2, y: box.y + 10 } // the failure above names why
+
+  await page.mouse.click(spot.x, spot.y)
   await page.locator('.editor .icon-pick').nth(3).click() // nth(0) is the "no icon" dash
 
   const stored = (await until(async () => (await find(icon_block.id))?.icon)) || ''

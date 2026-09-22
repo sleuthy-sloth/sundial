@@ -31,9 +31,13 @@ routine with it, including the skipped ones.
 One browser check was already red before any of this: `picking an icon stores it` seeded its block
 at 14:00, where the seeded `ui-check pm` shares the hour and the shorter block is drawn last, so
 the click landed on the wrong block and the icon was stored there. It was red at HEAD on a fresh
-database, on the old build and the new one alike. It seeds noon now.
+database, on the old build and the new one alike. Moving it to noon moved the collision rather
+than removing it — the double-click check above it creates a filler block wherever the day happens
+to be scrolled, which was 12:15 on a runner whose clock read 05:35 — so the check now finds a
+pixel inside its own block where its own block is on top, and says so when another block covers
+all of it.
 
-Counts: 376 backend tests, 106 unit, 250 browser checks.
+Counts: 376 backend tests, 106 unit, 251 browser checks.
 
 **The backend is in rooms, and the API did not move.** `app.py` was 802 lines holding the
 database's shape, the block rules, six areas of API and the SPA mount — and every one of the

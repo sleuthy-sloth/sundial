@@ -229,7 +229,7 @@ frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox,
                             Routines, Profile, Glyph, LedgerArt, CalendarPanel, Notifications,
                             Switch, YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   250 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   251 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -368,7 +368,7 @@ carry — are all refused with a sentence, before anything is written.
 ```
 cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 376 tests
 cd frontend && npm test                                # 106 unit tests, node --test
-cd frontend && npm run check:ui                        # 250 browser checks
+cd frontend && npm run check:ui                        # 251 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
