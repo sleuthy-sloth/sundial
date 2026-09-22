@@ -17,7 +17,9 @@ import test from 'node:test'
 import { CONFIRMATION, FORMAT, TABLES, VERSION, describe, summarize } from './datafile.js'
 
 const PY = new URL('../../backend/export.py', import.meta.url)
-const APP_PY = new URL('../../backend/app.py', import.meta.url)
+// The phrase is required by the import route, which lives in the router; this reads the module
+// that owns it rather than the `app` name that assembles the app.
+const DATA_PY = new URL('../../backend/routers/data.py', import.meta.url)
 
 /** A complete, valid document: one of everything, so nothing is missing by accident. */
 function good(overrides = {}) {
@@ -111,6 +113,6 @@ test('the format, version and table list match backend/export.py', () => {
 test('the confirmation phrase matches the one the server requires', () => {
   // Sent, not merely displayed: the panel builds the request body from this constant, so a
   // mismatch is an import that always fails with a 400 nobody can explain.
-  const src = readFileSync(APP_PY, 'utf8')
+  const src = readFileSync(DATA_PY, 'utf8')
   assert.equal(/^IMPORT_CONFIRMATION = "(.+)"$/m.exec(src)?.[1], CONFIRMATION)
 })

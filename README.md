@@ -186,7 +186,14 @@ file is `frontend/public/brand/sundial-og.jpg`. Changing it later means uploadin
 committing.
 
 ```
-backend/app.py              the API and the block rules (FastAPI)
+backend/main.py             assembling the app: the routers, the lifespan, the SPA mount
+backend/app.py              the name `uvicorn app:app` is given; re-exports main's app
+backend/routers/            the API, one module per area — blocks, week, calendar, google,
+                            data, push
+backend/schemas/            what a caller may send, one module per area
+backend/services/           the rules the routes ask about: the block rules, the day rules
+backend/bootstrap.py        the database's shape: the fresh-install table, the migrations
+backend/clock.py            what the server thinks today is, and what it stamps a write with
 backend/store.py            the database handle, so two modules can open one
 backend/calendar_sync.py    iCalendar and Google JSON ⇄ the event model, and the rules (pure)
 backend/env_file.py         the key=value writer both credential files use: 0600, by rename

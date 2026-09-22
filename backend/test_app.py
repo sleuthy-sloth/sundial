@@ -15,6 +15,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import app as sundial  # noqa: E402
+import bootstrap  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -394,7 +395,10 @@ def test_a_failing_migration_leaves_nothing_behind(tmp_path, monkeypatch):
     staged.mkdir()
     for sql in sundial.MIGRATIONS.glob("*.sql"):
         shutil.copy(sql, staged)
-    monkeypatch.setattr(sundial, "MIGRATIONS", staged)
+    # The runner reads the directory from the module it lives in, so what is patched is
+    # `bootstrap` — the module that owns `migrate` — rather than the `app` name that
+    # re-exports it.
+    monkeypatch.setattr(bootstrap, "MIGRATIONS", staged)
 
     probe = staged / "900_probe.sql"
     probe.write_text("ALTER TABLE blocks ADD COLUMN probe TEXT;\nSELECT * FROM no_such_table;\n")

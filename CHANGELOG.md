@@ -1,5 +1,34 @@
 # What changed, and when. Dates, and what to do about them.
 
+## Unreleased
+
+**The backend is in rooms, and the API did not move.** `app.py` was 802 lines holding the
+database's shape, the block rules, six areas of API and the SPA mount — and every one of the
+fifteen sections that come next lands in it. It is one module per area now: `routers/`,
+`schemas/` and `services/`, assembled by `main.py`, with `app.py` kept as the name
+`uvicorn app:app --app-dir backend` is already given by the unit, `run.sh` and CI.
+
+Nothing a caller can see changed. Every path, method, status code and refusal sentence is the
+same: the served OpenAPI document is byte-for-byte what `origin/main` serves, all 28
+path/method pairs are there, and no handler was renamed. The 226 browser checks pass against
+the new backend on the Pi, visual snapshots included — which is also what proves the SPA mount
+still catches what the routers do not.
+
+Three checks read code by its old address and had to follow it:
+
+- `backend/test_app.py` staged a migrations directory on `app.MIGRATIONS`. The runner reads its
+  own module's directory, so it stages on `bootstrap` now. Both halves of what the check guards
+  were then put back — the schema left behind without its version record, and a staged
+  directory the runner ignores — and it went red for each.
+- `frontend/src/datafile.test.js` read the import confirmation phrase out of `app.py`; it reads
+  `routers/data.py`, where the route that requires the phrase lives.
+- `scripts/verify_install.py` walked `app.routes` to print the API. That list is a tree once
+  routers are included — an included router is a node in it, not a path — so it reads the paths
+  out of the document the app serves. It no longer lists `/api/docs` and `/api/openapi.json` as
+  if they were endpoints, and no longer prints two of them twice.
+
+Counts: 326 backend tests, 91 unit, 226 browser checks.
+
 ## 0.10.1 — 2026-09-21
 
 **The glance is in the app, not in somebody else's.** 0.10.0 shipped today's plan as a rich-card
