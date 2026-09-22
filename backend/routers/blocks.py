@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from clock import now_iso, today
 from schemas.blocks import BlockIn, BlockPatch
+from services import routines
 from services.blocks import PALETTE, get_block, pick_color, row_to_dict
 from services.scheduling import check_fits, validate_day
 from store import db
@@ -18,7 +19,14 @@ router = APIRouter()
 
 @router.get("/api/day")
 def get_day(day: Optional[str] = None) -> dict:
-    """Everything the UI needs for one day: that day's blocks plus the inbox."""
+    """Everything the UI needs for one day: that day's blocks plus the inbox.
+
+    Routine occurrences are merged in with the blocks rather than handed over in a list of their
+    own, because on the page they are blocks — they are drawn on the clock, counted in the day's
+    planned time, ticked off and dragged. They carry `source: "routine"` and the routine and day
+    they came from, which is everything the frontend needs to send a write to the rule instead of
+    to a row: nothing is written for an occurrence until you change it.
+    """
     day = day or today()
     validate_day(day)
     with db() as conn:
@@ -28,10 +36,18 @@ def get_day(day: Optional[str] = None) -> dict:
         inbox = conn.execute(
             "SELECT * FROM blocks WHERE day IS NULL ORDER BY updated_at DESC"
         ).fetchall()
+        occurrences = routines.occurrences_on(conn, day)
+
+    blocks = [row_to_dict(r) for r in scheduled]
+    blocks.extend(occurrences)
+    # One list in the order the day happens. A block and an occurrence on the same minute are
+    # ordered blocks first, so a day full of routines never hides your own plan underneath it.
+    blocks.sort(key=lambda b: (b["start_min"], b["source"] != "block", b["title"]))
+
     return {
         "day": day,
         "today": today(),
-        "blocks": [row_to_dict(r) for r in scheduled],
+        "blocks": blocks,
         "inbox": [row_to_dict(r) for r in inbox],
     }
 

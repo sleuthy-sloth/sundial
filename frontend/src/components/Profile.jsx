@@ -2,6 +2,7 @@ import { version } from '../../package.json'
 
 import CalendarPanel from './CalendarPanel'
 import Notifications from './Notifications'
+import Routines from './Routines'
 import Switch from './Switch'
 import YourData from './YourData'
 
@@ -16,6 +17,9 @@ import YourData from './YourData'
  * The theme also lives in the header, as a small ambient control beside the time. A setting
  * you reach for mid-task and a setting you go looking for are different things; this is the
  * second one, and it says out loud what the header's sun/moon only shows.
+ *
+ * Routines are here for the same reason and one more: a rule with no day on screen this week
+ * has nothing to tap, so the place that lists what this copy holds is the only way back to it.
  */
 export default function Profile({
   status,
@@ -28,6 +32,8 @@ export default function Profile({
   connecting,
   theme,
   onTheme,
+  routines,
+  onOpenRoutine,
 }) {
   return (
     <div className="profile">
@@ -45,6 +51,8 @@ export default function Profile({
       <p className="note">
         Read-only on purpose: the calendar comes in, and nothing goes back out.
       </p>
+
+      <Routines routines={routines} onOpen={onOpenRoutine} />
 
       <h2>Appearance</h2>
       <div className="set-row">

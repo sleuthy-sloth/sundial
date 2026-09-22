@@ -14,7 +14,15 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { CONFIRMATION, FORMAT, TABLES, VERSION, describe, summarize } from './datafile.js'
+import {
+  CONFIRMATION,
+  FORMAT,
+  TABLES,
+  TABLES_BY_VERSION,
+  VERSION,
+  describe,
+  summarize,
+} from './datafile.js'
 
 const PY = new URL('../../backend/export.py', import.meta.url)
 // The phrase is required by the import route, which lives in the router; this reads the module
@@ -26,10 +34,12 @@ function good(overrides = {}) {
   return {
     format: FORMAT,
     version: VERSION,
-    schema_version: 4,
+    schema_version: 5,
     exported_at: '2026-09-21T12:00:00+00:00',
     tables: {
       calendars: [{ ref: 'home' }],
+      routines: [],
+      routine_overrides: [],
       blocks: [{ id: 'b1' }, { id: 'b2' }],
       events: [{ id: 'e1' }],
       sync_log: [],
@@ -43,14 +53,56 @@ test('a complete export is described in terms a person counts things in', () => 
   const seen = summarize(good())
   assert.equal(seen.ok, true)
   assert.deepEqual(seen.counts, {
-    calendars: 1, blocks: 2, events: 1, sync_log: 0, push_sent: 0,
+    calendars: 1, routines: 0, routine_overrides: 0, blocks: 2, events: 1, sync_log: 0,
+    push_sent: 0,
   })
   assert.equal(seen.says, '2 blocks, 1 event and 1 calendar')
 })
 
+test('routines are counted out loud, and their overrides are not', () => {
+  // "5 routine_overrides" is a word to read and nothing to know; "2 routines" is a thing you
+  // have, and the panel is telling you what is about to land on top of it.
+  const seen = summarize(
+    good({
+      tables: {
+        ...good().tables,
+        routines: [{ id: 'r1' }, { id: 'r2' }],
+        routine_overrides: [{ id: 'o1' }, { id: 'o2' }, { id: 'o3' }, { id: 'o4' }],
+      },
+    }),
+  )
+  assert.equal(seen.says, '2 blocks, 2 routines, 1 event and 1 calendar')
+})
+
+test('a file from before routines is a whole file, not an incomplete one', () => {
+  // The server accepts it, so the panel has to as well: refusing it here would be a refusal with
+  // a wrong sentence on it, and the button the person needs would never appear.
+  const older = { ...good(), version: 1 }
+  older.tables = { ...older.tables }
+  for (const name of TABLES) if (!TABLES_BY_VERSION[1].includes(name)) delete older.tables[name]
+
+  const seen = summarize(older)
+  assert.equal(seen.ok, true, seen.why)
+  assert.equal(seen.counts.routines, 0)
+  assert.equal(seen.counts.blocks, 2)
+})
+
+test('a current file missing the routines table is still caught', () => {
+  const current = good()
+  delete current.tables.routines
+  const seen = summarize(current)
+  assert.equal(seen.ok, false)
+  assert.match(seen.why, /no routines/)
+})
+
 test('an empty export says so rather than listing zeroes', () => {
   const seen = summarize(
-    good({ tables: { calendars: [], blocks: [], events: [], sync_log: [], push_sent: [] } }),
+    good({
+      tables: {
+        calendars: [], routines: [], routine_overrides: [], blocks: [], events: [],
+        sync_log: [], push_sent: [],
+      },
+    }),
   )
   assert.equal(seen.says, 'nothing at all')
 })
@@ -102,12 +154,20 @@ test('the format, version and table list match backend/export.py', () => {
   const src = readFileSync(PY, 'utf8')
   assert.equal(/^FORMAT = "(.+)"$/m.exec(src)?.[1], FORMAT)
   assert.equal(Number(/^VERSION = (\d+)$/m.exec(src)?.[1]), VERSION)
-  const tuple = /^TABLES: tuple\[str, \.\.\.\] = \(([^)]+)\)/m.exec(src)?.[1]
+
+  // Names out of the tuple rather than the whole text: the list is written one name per line
+  // now, and a parser that falls over on formatting is a test that fails for the wrong reason.
+  const names = (block) => [...(block ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1])
+  const tuple = /^TABLES: tuple\[str, \.\.\.\] = \(([\s\S]+?)^\)$/m.exec(src)?.[1]
+  assert.deepEqual(names(tuple), TABLES, 'the tables carried should be the same in both halves')
+
+  const older = /^\s+1: \(([^)]+)\),$/m.exec(src)?.[1]
   assert.deepEqual(
-    tuple?.split(',').map((part) => part.trim().replace(/"/g, '')),
-    TABLES,
-    'the tables carried should be the same list in both halves of the format',
+    names(older),
+    TABLES_BY_VERSION[1],
+    'what an old file promised has to be the same list in both halves too',
   )
+  assert.deepEqual(TABLES_BY_VERSION[VERSION], TABLES, 'the newest version is the whole list')
 })
 
 test('the confirmation phrase matches the one the server requires', () => {

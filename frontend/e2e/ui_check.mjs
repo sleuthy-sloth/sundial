@@ -564,11 +564,38 @@ const boxOf = async (text) => {
 
 // ---- an icon on a block ----
 {
-  const icon_block = await spawn({ title: 'ui-check icon', day: today, start_min: 14 * 60, duration_min: 60 })
+  // An hour that "looks empty" is not enough to click in, because where the other blocks on this
+  // day land moves with the clock. The seeded `ui-check pm` sits at 14:00, which is where this
+  // check first put its block: the shorter block is drawn last and wins the click, so the icon
+  // was read back from the wrong row — and this was red on a machine that had never run another
+  // build. Moving it to noon moved the collision rather than removing it: the double-click check
+  // further up creates a filler block wherever the day happens to be scrolled (12:15 in a run
+  // that started at 05:35 UTC) and keeps it until the suite's cleanup at the end. So this check
+  // now finds a pixel inside its own block where its own block is on top, and says so if there
+  // is not one.
+  const icon_block = await spawn({ title: 'ui-check icon', day: today, start_min: 12 * 60, duration_min: 60 })
   await page.reload({ waitUntil: 'networkidle' })
 
-  const box = await boxOf('ui-check icon')
-  await page.mouse.click(box.x + box.width / 2, box.y + 18)
+  const iconEl = page.locator('.content .block').filter({ hasText: 'ui-check icon' }).first()
+  await iconEl.scrollIntoViewIfNeeded()
+  const box = await iconEl.boundingBox()
+  let spot = await iconEl.evaluate((node) => {
+    const r = node.getBoundingClientRect()
+    const x = r.left + r.width / 2
+    for (let y = Math.round(r.top) + 10; y <= r.bottom - 6; y += 8) {
+      const at = document.elementFromPoint(x, y)
+      if (at && node.contains(at)) return { x, y }
+    }
+    return null
+  })
+  check(
+    'the block about to be given an icon is the one under the pointer',
+    spot !== null,
+    spot ? `at ${Math.round(spot.x)},${Math.round(spot.y)}` : 'another block covers all of it',
+  )
+  if (!spot) spot = { x: box.x + box.width / 2, y: box.y + 10 } // the failure above names why
+
+  await page.mouse.click(spot.x, spot.y)
   await page.locator('.editor .icon-pick').nth(3).click() // nth(0) is the "no icon" dash
 
   const stored = (await until(async () => (await find(icon_block.id))?.icon)) || ''
@@ -1995,6 +2022,196 @@ const wantThemeLight = async () => {
   // It is also the reason a whole-database replace belongs here, and not anywhere the suite is
   // midway through something.
   await req(`/blocks/${walk.id}`, { method: 'DELETE' }).catch(() => {})
+}
+
+// ---- a block that repeats ------------------------------------------------------------------
+// A routine is a rule, not a row for every day it lands on, so the checks worth making are about
+// what the rule means somewhere else in the calendar: another day draws it without anyone typing
+// it there, one day can be taken out on its own, and changing the rule changes every day it has
+// not been told otherwise — but not the one that has.
+//
+// The days are in March 2027 on purpose. They are far enough away that nothing in this run is
+// already on them, and far enough from today that a routine's days cannot turn up in the
+// pictures further down.
+{
+  const MON = '2027-03-08'
+  const WED = '2027-03-10'
+  const FRI = '2027-03-12'
+  const SUN = '2027-03-14'
+  const title = 'ui-check gym'
+
+  const routinesNow = async () => (await req('/routines')).routines
+  const routineOn = async (day) =>
+    (await blocksOn(day)).find((b) => b.source === 'routine') || null
+
+  // A run interrupted halfway leaves its own rule and block behind, and this section would then
+  // count two of everything. Clear out what this suite made by name — nothing else — so the
+  // section is the same test on a fresh database and on one it has already been through.
+  for (const r of await routinesNow()) {
+    if (r.title.startsWith('ui-check')) await req(`/routines/${r.id}`, { method: 'DELETE' })
+  }
+  for (const b of await blocksOn(MON)) {
+    if (b.title.startsWith('ui-check')) await req(`/blocks/${b.id}`, { method: 'DELETE' })
+  }
+
+  const goTo = async (day) => {
+    await page.fill('.day-head input[type="date"]', day)
+    await until(async () => (await page.locator('.day-head input[type="date"]').inputValue()) === day)
+    await page.waitForTimeout(250)
+  }
+  const openBlock = async (text) => {
+    const box = await boxOf(text)
+    await page.mouse.click(box.x + box.width / 2, box.y + 18)
+    await until(async () => (await page.locator('.editor').count()) === 1)
+  }
+
+  const seed = await spawn({ title, day: MON, start_min: 390, duration_min: 60 })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.tabs button[data-tab="day"]').click()
+  await goTo(MON)
+  check('the block we are about to repeat is on the day we put it on', (await blocksOn(MON)).some((b) => b.id === seed.id))
+
+  await openBlock(title)
+  check(
+    'the editor offers a repeat, and starts where an ordinary block is',
+    (await page.locator('.editor .repeat-kind').inputValue()) === 'never',
+    await page.locator('.editor .repeat-kind').inputValue(),
+  )
+
+  // Monday, Wednesday, Friday — through the editor's own control, with nothing typed at the API.
+  await page.locator('.editor .repeat-kind').selectOption('selected_weekdays')
+  for (const i of [0, 2, 4]) await page.locator('.editor .weekday').nth(i).click()
+  const pressed = await page.locator('.editor .weekday[aria-pressed="true"]').count()
+  check('the days you picked are the days it says are picked', pressed === 3, `${pressed} pressed`)
+  await page.locator('.editor .repeat-go').click()
+
+  const rule = await until(async () => {
+    const all = await routinesNow()
+    return all.find((r) => r.recurrence_kind === 'selected_weekdays') || null
+  })
+  check('choosing a repeat writes a rule rather than three rows', Boolean(rule), JSON.stringify(rule && rule.summary))
+  check(
+    'and it read the days off the control it was given them from',
+    Boolean(rule) && rule.weekdays.length === 3 && rule.weekdays.includes(1) && rule.weekdays.includes(3) && rule.weekdays.includes(5),
+    rule && JSON.stringify(rule.weekdays),
+  )
+  const monNow = await until(async () => {
+    const on = await blocksOn(MON)
+    return on.some((b) => b.id === seed.id) ? null : on
+  })
+  check(
+    'and the block it was made from is gone, so the day holds one hour and not two',
+    Boolean(monNow),
+    monNow ? 'the block is not on the day' : 'the block is still there',
+  )
+  check(
+    'and the day it was made from still shows the hour, as a day of the rule',
+    (await routineOn(MON))?.source === 'routine',
+  )
+
+  // The panel stays where the change was made: onto the rule, saying what it now is. Waited for
+  // rather than read at once: the rule exists before the block is taken out and the day is read
+  // back, and two requests is not a race the check should be betting on.
+  const saysRule = await until(async () => /The rule for/.test(await textOf('.editor .routine-what')))
+  check(
+    'the editor moves onto the rule it just made',
+    saysRule,
+    await textOf('.editor .routine-what'),
+  )
+
+  // Wednesday: drawn without anyone having typed it there.
+  await goTo(WED)
+  const wed = await until(async () => await routineOn(WED))
+  check('another day draws the rule without being told about it', Boolean(wed), wed && wed.title)
+  check(
+    'and the day is marked as coming from a rule rather than typed',
+    (await page.locator('.content .block[data-routine="1"]').count()) === 1,
+    `${await page.locator('.content .block[data-routine="1"]').count()} marked`,
+  )
+  check('and a day the rule does not land on stays empty', (await blocksOn(SUN)).length === 0, `${(await blocksOn(SUN)).length} block(s)`)
+
+  // One day, taken out on its own.
+  await openBlock(title)
+  check(
+    'opening a day of a rule opens that day, not the rule',
+    (await page.locator('.editor .halves button[data-half="day"][aria-pressed="true"]').count()) === 1,
+  )
+  // The switch itself: the two halves are one click apart, and going over to the rule and back
+  // has to leave the day where it was — this is the whole risk of having a rule behind a day.
+  check(
+    'and the panel offers the rule itself, one click away',
+    (await page.locator('.editor .halves button').count()) === 2,
+    `${await page.locator('.editor .halves button').count()} buttons`,
+  )
+  await page.locator('.editor .halves button[data-half="routine"]').click()
+  check(
+    'and choosing the rule moves the panel onto the rule',
+    (await page.locator('.editor .halves button[data-half="routine"][aria-pressed="true"]').count()) === 1,
+    await textOf('.editor .routine-what'),
+  )
+  await page.locator('.editor .halves button[data-half="day"]').click()
+  check(
+    'and choosing the day brings it back with the day still open',
+    (await page.locator('.editor .halves button[data-half="day"][aria-pressed="true"]').count()) === 1 &&
+      (await page.locator('.editor .title-input').inputValue()) === title,
+  )
+  await page.locator('.editor-actions .danger', { hasText: 'Skip this day' }).click()
+  await until(async () => (await routineOn(WED)) === null)
+  check('taking one day out removes it from that day', (await routineOn(WED)) === null)
+  check(
+    'and only from that day: the rule still lands on Monday and Friday',
+    Boolean(await routineOn(MON)) && Boolean(await routineOn(FRI)),
+  )
+  check('and the rule itself is untouched', (await routinesNow()).length === (rule ? 1 : 0), `${(await routinesNow()).length} rule(s)`)
+
+  // The You tab lists it, which is how a rule with no day on screen is reached at all.
+  const rid = rule ? rule.id : ''
+  if (!rid) check('the profile needs the rule to have an id before it can open it', false, 'no rule was created')
+
+  if (rid) {
+    await page.locator('.tabs button[data-tab="you"]').click()
+    await until(async () => (await page.locator('.routine-open').count()) >= 1)
+    check(
+      'the profile lists the rules you have, by name and when they land',
+      (await textOf('.routine-open')).includes(title),
+      await textOf('.routine-open'),
+    )
+    await page.locator(`.routine-open[data-routine-id="${rid}"]`).click()
+    await until(async () => (await page.locator('.editor .title-input').count()) === 1)
+
+    // Changing the rule changes every day it has not been told otherwise.
+    const renamed = 'ui-check gym (renamed)'
+    await page.fill('.editor .title-input', renamed)
+    await page.locator('.editor .title-input').blur()
+    await until(async () => (await routinesNow()).some((r) => r.title === renamed))
+    check(
+      'renaming the rule renames the rule',
+      (await routinesNow()).some((r) => r.title === renamed),
+    )
+    const monAfter = await until(async () => {
+      const b = await routineOn(MON)
+      return b && b.title === renamed ? b : null
+    })
+    check('and every day it has not been told otherwise follows the rename', Boolean(monAfter), monAfter && monAfter.title)
+
+    // Deleting the rule takes the days with it.
+    await page.locator('.editor-actions .danger', { hasText: 'Delete the routine' }).click()
+    await until(async () => (await routinesNow()).length === 0)
+  }
+
+  check('deleting the rule deletes the rule', (await routinesNow()).length === 0)
+  check(
+    'and the days it was landing on go with it',
+    !(await routineOn(MON)) && !(await routineOn(FRI)),
+  )
+
+  await page.locator('.tabs button[data-tab="day"]').click()
+  await goTo(today)
+  check(
+    'and the suite leaves the calendar where it found it',
+    (await page.locator('.day-head input[type="date"]').inputValue()) === today,
+    await page.locator('.day-head input[type="date"]').inputValue(),
+  )
 }
 
 // ---- what is happening now ----------------------------------------------------------------

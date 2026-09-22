@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+**A block can repeat, and a repeat is one rule rather than a row for every day it lands on.**
+"Mon · Wed · Fri at 06:30" is now a `routines` row that answers for the days it covers, and the
+only days with rows of their own are the ones you told something different, in
+`routine_overrides`. A day you never touched has no row anywhere — which is what makes renaming
+the routine rename it on every day, and what makes taking out one Wednesday leave the rest alone.
+Nothing is generated ahead of time: an occurrence is a question asked of a rule and a date, so a
+routine landing on every weekday for the next ten years is one row, and asking for a year of it
+writes nothing at all.
+
+The editor is one panel for three subjects — a block, one day of a rule, and the rule itself —
+because "change this day" and "change every day" are two readings of the same thing, and putting
+one of them behind a modal is how a person edits the wrong one. It says which of the two you are
+on, in words, before you change anything. On the clock a routine's block wears the dotted edge an
+appointment wears, for the same reason (you did not type this one today); in a list it carries a
+loop; and every rule you own is listed in **You**, since a rule with no day on screen this week
+would otherwise have nothing to be reached by.
+
+Rows now carry `source`, and a write against a day of a rule names the routine and the date rather
+than a block id — so the panel, the drag and the checkbox all put the change where it belongs
+without knowing which kind of row they were handed.
+
+The export format is version 2. A version 1 file still imports: the tables its own version
+promised are the tables that must be there, and the routines it never heard of come in empty
+rather than refusing the file. Exporting and importing back is checked to bring every day of a
+routine with it, including the skipped ones.
+
+One browser check was already red before any of this: `picking an icon stores it` seeded its block
+at 14:00, where the seeded `ui-check pm` shares the hour and the shorter block is drawn last, so
+the click landed on the wrong block and the icon was stored there. It was red at HEAD on a fresh
+database, on the old build and the new one alike. Moving it to noon moved the collision rather
+than removing it — the double-click check above it creates a filler block wherever the day happens
+to be scrolled, which was 12:15 on a runner whose clock read 05:35 — so the check now finds a
+pixel inside its own block where its own block is on top, and says so when another block covers
+all of it.
+
+Counts: 376 backend tests, 106 unit, 251 browser checks.
+
 **The backend is in rooms, and the API did not move.** `app.py` was 802 lines holding the
 database's shape, the block rules, six areas of API and the SPA mount — and every one of the
 fifteen sections that come next lands in it. It is one module per area now: `routers/`,

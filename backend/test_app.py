@@ -328,7 +328,7 @@ def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
         # runner correctly decides it has nothing to do.
         conn.execute("DELETE FROM schema_version WHERE version >= 3")
 
-    assert sundial.migrate() == [3, 4]
+    assert sundial.migrate() == [3, 4, 5]
 
     with sundial.db() as conn:
         rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))
