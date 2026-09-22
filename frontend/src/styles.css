@@ -1608,6 +1608,146 @@ button { cursor: pointer; }
   }
 }
 
+/* ---------------- the week ----------------
+
+   Capacity, not a grid. Seven columns, each one a day: what it holds over what is open, and a
+   bar for the share of it that is spoken for. An hour here is a seventh of a quantity rather
+   than a position on a clock, which is the whole difference between this and a calendar.
+
+   A seventh of a 390px phone is 48px, and a seventh of a 320px phone is 38px, so the type is
+   sized to fit the narrowest column rather than shrunk to it: the figures are mono and never
+   wrap, and what does not fit there — the word after the open figure, and a day's block count
+   — is dropped below 430px rather than allowed to spill into the column beside it. Both are
+   still in the day's own label, so nothing is lost to a screen reader. */
+.week { max-width: 46rem; }
+
+.week-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0 var(--s3);
+}
+.week-step {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  color: var(--text);
+  font-size: 1.0625rem;
+  line-height: 1;
+}
+.week-step:hover { border-color: var(--solar-mark); color: var(--solar-mark); }
+.week-label {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.week-grid li { display: flex; }
+
+/* The whole column is the target: a seventh of a phone is short of 44px wide, so the row is
+   44px tall and 200px would be, and the touch area is the column rather than a glyph in it. */
+.week-day {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 2px solid transparent;
+  border-radius: var(--r-block);
+  font: inherit;
+  color: var(--text);
+}
+.week-day:hover { border-color: var(--solar-mark); }
+/* Today is the mark the tab bar uses for where you are: a 2px rule, warm, never red. */
+.week-day.is-today { border-top-color: var(--solar-mark); }
+/* And the day the rest of the app is showing — the one Today and Day would open on. Without
+   it, tapping a column and coming back leaves you guessing which day the header is about. */
+.week-day.is-here { background: var(--surface-2); }
+
+.week-dow {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.week-date {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.week-planned {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+/* The bar is the day: the track is what is left of it, and the three fills are the plan, the
+   hours the plan and the calendar share, and the calendar's own. Their widths add up to
+   exactly the busy share — see barOf() — so the bar can never be longer than the day. */
+.week-bar {
+  width: 100%;
+  height: 7px;
+  margin: 3px 0 2px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--gap);
+}
+.week-fill { height: 100%; transition: width var(--t-calm) var(--ease-out); }
+.week-fill.is-plan { background: var(--text); }
+.week-fill.is-both { background: var(--ink-2); }
+/* Hatched, the way an appointment is dotted on the clock: not yours to move, and still read. */
+.week-fill.is-calendar {
+  background-image: repeating-linear-gradient(45deg, var(--text) 0 1px, transparent 1px 3px);
+}
+
+.week-open,
+.week-count {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.week-open-word {
+  margin-left: 2px;
+  font-family: var(--sans);
+  font-size: 0.5625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.week-count { font-size: 0.625rem; }
+.week-note { margin-top: var(--s3); max-width: 34rem; }
+
+@media (max-width: 430px) {
+  .week-open-word,
+  .week-count { display: none; }
+}
+
 /* ---------------- the shell ----------------
 
    The tab bar is the navigation at every width, so there is one way to move around instead of a

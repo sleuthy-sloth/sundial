@@ -147,12 +147,14 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   check('and says which destination you are in', (await page.locator('.tabs button[aria-current="page"]').count()) === 1)
 }
 
-// ---- the shell: three destinations at the foot of the app --------------------
+// ---- the shell: four destinations at the foot of the app --------------------
 // The navigation, replaced wholesale. A switch in the header plus a rail beside the day is what
 // put the app's own plumbing — credentials, sync, theme — in the same column as your plan, so
 // connecting a calendar sat under your inbox as though it were plan material. These checks pin
 // what took its place, and pin that the old controls are actually gone, which is the part a
-// stylesheet can lie about.
+// stylesheet can lie about. The week arrived as a fourth destination rather than as a control
+// in the header, and the check below is what holds that: four labels on a 390px bar, and each
+// one a whole destination rather than a panel appended to the last.
 {
   const shell = async () => ({
     labels: (await page.locator('.tabs button').allTextContents()).map((t) => t.trim()).join('/'),
@@ -166,7 +168,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   await page.waitForSelector('.tabs')
 
   let s = await shell()
-  check('a phone gets three destinations, named', s.labels === 'Today/Day/You', s.labels)
+  check('a phone gets four destinations, named', s.labels === 'Today/Week/Day/You', s.labels)
   check('exactly one of them says you are there', s.current === 1)
   check('the header switch is gone, not just restyled', s.switches === 0)
   check('and the rail no longer spends a quarter of a phone screen above the plan', !s.rail)
@@ -179,7 +181,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   )
 
   const behind = []
-  for (const key of ['today', 'day', 'you']) {
+  for (const key of ['today', 'week', 'day', 'you']) {
     const b = await page.locator(`.tabs button[data-tab="${key}"]`).boundingBox()
     const top = await page.evaluate(
       ([x, y]) => {
@@ -195,7 +197,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   // Each one shows what it says it does, and the other one leaves the screen: a destination that
   // merely adds its panel below the previous one is not navigation.
   const goes = []
-  for (const [key, here, away] of [['today', null, '.content'], ['day', '.content', null], ['you', '.cal', '.content']]) {
+  for (const [key, here, away] of [['today', null, '.content'], ['week', '.week-grid', null], ['day', '.content', null], ['you', '.cal', '.content']]) {
     await page.locator(`.tabs button[data-tab="${key}"]`).click()
     await page.waitForTimeout(350)
     const shown = await page.locator(`.tabs button[data-tab="${key}"][aria-current="page"]`).count()
@@ -203,7 +205,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
     const left = away ? await page.locator(away).count() : 0
     goes.push(`${key}:${shown === 1 && got > 0 && left === 0 ? 'ok' : `shown=${shown} here=${got} gone=${left}`}`)
   }
-  check('today is the plan, day is the clock, you is the settings', goes.every((g) => g.endsWith('ok')), goes.join(' '))
+  check('today is the plan, week is the week, day is the clock, you is the settings', goes.every((g) => g.endsWith('ok')), goes.join(' '))
 
   await page.locator('.tabs button[data-tab="you"]').click()
   await page.waitForTimeout(350)
@@ -266,6 +268,346 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
   check('and there the rail comes back, because a drag needs somewhere to land', s.rail, `rail visible: ${s.rail}`)
   await page.waitForSelector('.content .block')
 }
+
+// ---- the week: capacity, not a grid -----------------------------------------------------------
+// The screen the plan asks for: seven columns, each one a day, saying what it holds and what is
+// left of it. Every figure asserted here is read from /api/week as the check runs rather than
+// typed out, so the check stands whatever is already in the database — the arithmetic behind
+// those figures is the backend suite's job, not this file's. What this file is for is the part
+// the backend cannot see: that the screen draws what the API says, that a day is reachable by
+// thumb and by keyboard, and that nothing on it reads as a warning.
+{
+  const shift = (iso, delta) => {
+    const d = new Date(`${iso}T12:00:00`)
+    d.setDate(d.getDate() + delta)
+    return d.toLocaleDateString('sv-SE')
+  }
+  // Monday-first, written out rather than asked of the app: a check that reads the rule from
+  // the thing it is checking passes whatever that thing does.
+  const mondayOf = (iso) => shift(iso, -((new Date(`${iso}T12:00:00`).getDay() + 6) % 7))
+  const weekFrom = async (start) => (await req(`/week?start=${start}&days=7`)).days
+
+  /** A duration as a column writes it — "4h20", "45m", "—" (src/week.js). A second
+   *  implementation on purpose: a check that builds its expectation with the app's own
+   *  formatter can only prove the app agrees with itself. */
+  const asColumn = (minutes) => {
+    const total = Math.max(0, Math.round(minutes || 0))
+    if (!total) return '—'
+    if (total < 60) return `${total}m`
+    const spare = total % 60
+    return spare ? `${Math.floor(total / 60)}h${String(spare).padStart(2, '0')}` : `${Math.floor(total / 60)}h`
+  }
+
+  const rowsOf = () =>
+    page.$$eval('.week-day', (els) =>
+      els.map((el) => {
+        const box = el.getBoundingClientRect()
+        return {
+          day: el.dataset.day,
+          planned: el.querySelector('.week-planned')?.textContent ?? '',
+          open: el.querySelector('.week-open-n')?.textContent ?? '',
+          count: el.querySelector('.week-count')?.textContent ?? '',
+          label: el.getAttribute('aria-label') ?? '',
+          current: el.getAttribute('aria-current'),
+          today: el.classList.contains('is-today'),
+          here: el.classList.contains('is-here'),
+          bar: el.querySelector('.week-bar')?.getBoundingClientRect().width ?? 0,
+          fills: [...el.querySelectorAll('.week-fill')].reduce((n, f) => n + f.getBoundingClientRect().width, 0),
+          box: { x: box.x, y: box.y, w: box.width, h: box.height },
+        }
+      }),
+    )
+
+  // Two blocks that overlap, on a day that is not today: 09:00+90m and 10:00+60m is 150 minutes
+  // of duration in 120 minutes of day, and 120 is the number this screen has to show.
+  const monday = mondayOf(today)
+  const other = [0, 1, 2, 3, 4, 5, 6].map((n) => shift(monday, n)).filter((d) => d !== today).pop()
+  await spawn({ title: 'ui-check week a', day: other, start_min: 540, duration_min: 90, color: 'sky' })
+  await spawn({ title: 'ui-check week b', day: other, start_min: 600, duration_min: 60, color: 'sky' })
+
+  // Blocks written straight to the API are not in the app's state until it looks again — it
+  // fetches on mount and on a day change. Without this the columns came out of an empty week and
+  // the check disagreed with the API about a day it had just seeded.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.tabs button[data-tab="week"]').click()
+  await page.waitForSelector('.week-grid')
+
+  const week1 = await weekFrom(monday)
+  const drawn = await until(async () => {
+    const rows = await rowsOf()
+    return rows.length === 7 && rows.every((r, i) => r.day === week1[i].day) ? rows : null
+  })
+  check(
+    'the week draws seven columns, Monday first, for the week the day is in',
+    Boolean(drawn),
+    drawn ? drawn.map((r) => r.day.slice(8)).join(' ') : `${(await rowsOf()).length} columns`,
+  )
+
+  const rows = drawn ?? []
+  const mismatched = rows
+    .map((r, i) => {
+      const want = `${asColumn(week1[i].planned_minutes)}/${asColumn(week1[i].open_minutes)}`
+      const got = `${r.planned.trim()}/${r.open.trim()}`
+      return want === got ? null : `${week1[i].day}: api ${want}, drew ${got}`
+    })
+    .filter(Boolean)
+  check(
+    'each column shows what the API says the day holds and what it leaves open',
+    mismatched.length === 0,
+    mismatched.join(' | ') || rows.map((r) => `${r.day.slice(8)}:${r.planned.trim()}`).join(' '),
+  )
+
+  // A day the week did not draw at all leaves nothing to read, and reading nothing is a failure of
+  // that check rather than the end of the run: every read below is from a value that may be absent.
+  const overlapped = week1.find((d) => d.day === other) ?? {}
+  const drawnOther = rows.find((r) => r.day === other) ?? {}
+  const saidOther = String(drawnOther.label ?? '')
+  const wanted = asColumn(overlapped.planned_minutes)
+  const summed = asColumn(overlapped.minutes)
+  check(
+    'a day whose blocks overlap shows the time it holds, not the durations added up',
+    overlapped.minutes > overlapped.planned_minutes &&
+      wanted !== summed &&
+      (drawnOther.planned ?? '').trim() === wanted,
+    `blocks sum to ${overlapped.minutes} (${summed}), the day holds ${overlapped.planned_minutes} (${wanted}), the column says ${(drawnOther.planned ?? '(absent)').trim()}`,
+  )
+
+  // The bar's three widths are shares of the day, so they add up to exactly the busy share — never
+  // more (a bar longer than the day it describes) and never the two totals stacked. What this
+  // cannot see is the split between the plan and the calendar, because nothing in this suite can put
+  // an event on a calendar: there is no route that writes one. That split is pinned by `barOf`'s
+  // unit tests and by `day_stats`' backend ones.
+  const busyShareDay = week1.find((d) => d.day === today) ?? {}
+  const drawnToday = rows.find((r) => r.day === today) ?? {}
+  const busyShare = (1440 - (busyShareDay.open_minutes ?? 0)) / 1440
+  check(
+    'and a bar covers exactly the busy share of its day, leaving the rest open',
+    drawnToday.bar > 0 && Math.abs(drawnToday.fills / drawnToday.bar - busyShare) < 0.02,
+    `today: ${Math.round(drawnToday.fills || 0)}px of ${Math.round(drawnToday.bar || 0)}px, expected ${(busyShare * 100).toFixed(1)}%`,
+  )
+
+  const marked = rows.filter((r) => r.today)
+  check(
+    'today is marked once, and only today is',
+    marked.length === 1 && marked[0].day === today && marked[0].current === 'date',
+    marked.length ? `${marked[0].day} aria-current=${marked[0].current}` : 'no column marked',
+  )
+  const here = rows.filter((r) => r.here)
+  check(
+    'and the day the rest of the app is showing says so',
+    here.length === 1 && here[0].day === today,
+    here.length ? here[0].day : 'no column marked',
+  )
+
+  const named = new Date(`${other}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+  check(
+    'a column is a sentence to a screen reader, not a pile of numbers',
+    saidOther.startsWith(`${named}: `) && /planned/.test(saidOther) && /open/.test(saidOther),
+    saidOther.slice(0, 120) || '(no column for that day)',
+  )
+  check(
+    'and the count of blocks is there for the days that have any',
+    rows.filter((r) => r.count).length === week1.filter((d) => d.block_count > 0).length,
+    rows.map((r) => r.count).join('|'),
+  )
+
+  // Room is the reason the words go, not taste: "23h open" is what a column can hold and "23h
+  // open" written beside it is what it cannot. Wide, a column says what the figure means; on a
+  // phone each column keeps the figures and drops the words around them, and the day's own
+  // sentence — which still says both — is what a screen reader reads either way.
+  //
+  // Read as shown-or-not rather than as a display value: the words are spans inside a flex
+  // column, and a flex child is blockified, so "inline" is never what the browser reports.
+  const wide = await page.evaluate(
+    ([word, count]) => [document.querySelector(word), document.querySelector(count)].map(
+      (el) => (el ? getComputedStyle(el).display !== 'none' : false),
+    ),
+    ['.week-open-word', '.week-count'],
+  )
+  check(
+    'wide enough, a column spells out what its figures mean',
+    wide[0] && wide[1],
+    `word shown: ${wide[0]}, count shown: ${wide[1]}`,
+  )
+
+  const written = await page.locator('.week').innerText()
+  check(
+    'nothing on the week reads as a warning',
+    !/overdue|late\b|missed|behind|streak|score|failed/i.test(written),
+    written.split('\n').slice(0, 3).join(' / '),
+  )
+
+  // The arrow keys, then the ring on the column they land on. A programmatic focus is not a
+  // keyboard modality, so a key is pressed first: without it this would pass on a control with
+  // no visible focus at all.
+  //
+  // Behind a count of the columns, because everything below drives the page by selector: seven
+  // missing columns should fail these checks one at a time rather than throw on the first
+  // `focus()` and take the rest of the suite with them.
+  const keys = rows.map((r) => r.day)
+  const drawnCount = await page.locator('.week-day').count()
+  // Drawn AND for the days the API has: seven columns of somebody else's week are still seven
+  // columns, and every step below addresses them by day.
+  const walkable = Boolean(drawn) && drawnCount === 7
+  check(
+    'the week is drawn as the days the API has, so there is something to walk and to tap',
+    walkable,
+    `${drawnCount} columns drawn${drawn ? '' : ' for other days'}`,
+  )
+  if (!walkable) {
+    check('the arrow keys walk the week', false, 'not reached: the week is not drawn')
+    check('and stop at the end of the week rather than wrapping round to the start', false, 'not reached')
+    check('and the column they land on draws the same focus ring as everything else', false, 'not reached')
+    check('and back the other way', false, 'not reached')
+    check('tapping a day opens it in Today', false, 'not reached')
+    check('and the day it opened is the day that was tapped', false, 'not reached')
+    check('with that day’s own work on it', false, 'not reached')
+    check('next week moves the whole week, to the days the API has for it', false, 'not reached')
+    check('and last week comes back to it', false, 'not reached')
+  }
+
+  if (walkable) {
+    await page.locator(`.week-day[data-day="${keys[0]}"]`).focus()
+    await page.keyboard.press('ArrowRight')
+    const afterOne = await page.evaluate(() => document.activeElement?.dataset?.day)
+    check('the arrow keys walk the week', afterOne === keys[1], `${keys[0]} → ${afterOne}`)
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight')
+    const atEnd = await page.evaluate(() => document.activeElement?.dataset?.day)
+    check(
+      'and stop at the end of the week rather than wrapping round to the start',
+      atEnd === keys[6],
+      `eight presses from ${keys[1]} end on ${atEnd}`,
+    )
+    const ring = await page.evaluate(() => {
+      const s = getComputedStyle(document.activeElement)
+      return { w: s.outlineWidth, st: s.outlineStyle, off: s.outlineOffset }
+    })
+    check(
+      'and the column they land on draws the same focus ring as everything else',
+      ring.w === '2px' && ring.st === 'solid' && ring.off === '2px',
+      `outline ${ring.w} ${ring.st}, offset ${ring.off}`,
+    )
+    await page.keyboard.press('ArrowLeft')
+    check('and back the other way', (await page.evaluate(() => document.activeElement?.dataset?.day)) === keys[5])
+  }
+
+  // Tapping a day opens it in Today — the only thing a column does. Behind the same count as
+  // above: a column that is not there cannot be tapped, and that is this check's failure.
+  if (walkable) {
+    await page.locator(`.week-day[data-day="${other}"]`).click()
+    await page.waitForTimeout(500)
+    check(
+      'tapping a day opens it in Today',
+      (await page.locator('.tabs button[data-tab="today"][aria-current="page"]').count()) === 1,
+    )
+    check(
+      'and the day it opened is the day that was tapped',
+      (await page.locator('.day-head input[type="date"]').inputValue()) === other,
+      `header says ${await page.locator('.day-head input[type="date"]').inputValue()}, tapped ${other}`,
+    )
+    check(
+      'with that day’s own work on it',
+      (await page.locator('.agenda .row').filter({ hasText: 'ui-check week a' }).count()) === 1,
+    )
+  }
+
+  // The week moves a week at a time, and it moves to the week it asks the API for.
+  await page.locator('.tabs button[data-tab="week"]').click()
+  await page.waitForTimeout(300)
+  await page.locator('.week-step').nth(1).click()
+  const nextWeek = await until(async () => {
+    const seen = await rowsOf()
+    return seen[0]?.day === shift(monday, 7) ? seen : null
+  })
+  const week2 = await weekFrom(shift(monday, 7))
+  check(
+    'next week moves the whole week, to the days the API has for it',
+    Boolean(nextWeek) && nextWeek.every((r, i) => r.day === week2[i].day),
+    nextWeek ? nextWeek.map((r) => r.day).join(' ') : (await rowsOf())[0]?.day,
+  )
+  await page.locator('.week-step').nth(0).click()
+  const backAgain = await until(async () => {
+    const seen = await rowsOf()
+    return seen[0]?.day === monday ? seen : null
+  })
+  check('and last week comes back to it', Boolean(backAgain), backAgain ? backAgain[0].day : '')
+
+  // Seven columns is a seventh of the screen each. The narrowest phone this app is used on is
+  // the one that decides what fits: at 320px the columns are 38px wide, so the check is that
+  // nothing spills sideways and nothing is clipped, not that the type is pretty.
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.waitForTimeout(350)
+    const onScreen = await rowsOf()
+    const oneRow = new Set(onScreen.map((r) => Math.round(r.box.y))).size === 1
+    const inside = onScreen.every((r) => r.box.x >= -0.5 && r.box.x + r.box.w <= width + 0.5)
+    check(
+      `at ${width}px all seven days are on screen in one row, each at least 44px tall`,
+      onScreen.length === 7 && oneRow && inside && onScreen.every((r) => r.box.h >= 44),
+      onScreen.map((r) => `${Math.round(r.box.w)}x${Math.round(r.box.h)}`).join(' '),
+    )
+    const sideways = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    check(`and at ${width}px nothing overflows sideways`, sideways <= 0, `${sideways}px`)
+    const clipped = await page.evaluate(() =>
+      [...document.querySelectorAll('.week-day *')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => el.className),
+    )
+    check(
+      `and at ${width}px a column's own figures are not clipped`,
+      clipped.length === 0,
+      clipped.join(', ') || 'nothing clipped',
+    )
+    const quiet = await page.evaluate(() => ({
+      word: document.querySelector('.week-open-word') ? getComputedStyle(document.querySelector('.week-open-word')).display : 'absent',
+      count: document.querySelector('.week-count') ? getComputedStyle(document.querySelector('.week-count')).display : 'absent',
+    }))
+    check(
+      `and at ${width}px a column keeps the figures and drops the words around them`,
+      quiet.word === 'none' && (quiet.count === 'none' || quiet.count === 'absent'),
+      `word ${quiet.word}, count ${quiet.count}`,
+    )
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.waitForTimeout(200)
+
+  // A day with nothing on it says nothing: a dash where a figure would be, and a whole day open.
+  // 2099-01-01 is the suite's day that nothing is ever seeded on.
+  await page.fill('.day-head input[type="date"]', EMPTY_DAY)
+  await page.waitForTimeout(500)
+  await page.locator('.tabs button[data-tab="week"]').click()
+  const emptyWeekStart = mondayOf(EMPTY_DAY)
+  const emptyWeek = await until(async () => {
+    const seen = await rowsOf()
+    return seen[0]?.day === emptyWeekStart ? seen : null
+  })
+  const emptyApi = await weekFrom(emptyWeekStart)
+  const emptyColumn = emptyWeek?.find((r) => r.day === EMPTY_DAY)
+  const emptyApiDay = emptyApi.find((d) => d.day === EMPTY_DAY)
+  check(
+    'a day with nothing planned shows a dash rather than a zero',
+    emptyColumn?.planned.trim() === '—' && emptyApiDay.planned_minutes === 0,
+    `column says "${emptyColumn?.planned.trim()}", API says ${emptyApiDay.planned_minutes}`,
+  )
+  check(
+    'and a day with nothing on it is a whole day open, with no count beside it',
+    emptyColumn?.open.trim() === asColumn(emptyApiDay.open_minutes) && emptyColumn.count === '',
+    `${emptyColumn?.open.trim()} open, count "${emptyColumn?.count}"`,
+  )
+
+  // Back to where the rest of the suite expects to find the app.
+  await page.locator('.tabs button[data-tab="today"]').click()
+  await page.fill('.day-head input[type="date"]', today)
+  await until(async () => (await page.locator('.day-head input[type="date"]').inputValue()) === today)
+  await page.locator('.tabs button[data-tab="day"]').click()
+  await page.waitForSelector('.content .block')
+}
+
 
 // ---- what the timeline rendered ----
 check('an hour rule an hour, a label every other one', (await page.locator('.hour-label').count()) === 12)
@@ -1687,6 +2029,13 @@ const boxOf = async (text) => {
   await wantTheme('dark')
   await page.waitForTimeout(500)
   await audit('the timeline, in dark', TAGS)
+
+  // the week, dark as well: seven buttons whose accessible name is the whole of a day — which is
+  // the shape of control axe has the most to say about, since a name is all it has to read
+  await page.locator('.tabs button[data-tab="week"]').click()
+  await page.waitForTimeout(400)
+  await audit('the week, in dark', TAGS)
+
   await wantTheme('light')
   await page.locator('.tabs button[data-tab="today"]').click()
   await page.waitForTimeout(400)
@@ -2830,6 +3179,14 @@ const wantThemeLight = async () => {
   // change to a few rows.
   const MAX_MEAN = 0.5
   const MAX_FAR_PCT = 0.8
+
+  // Five of these eight pictures carry the day's own date in the header, and a date expires at
+  // midnight: a phone baseline captured on the 21st differs from a run on the 22nd by the three
+  // letters of the weekday, which is 0.5% of a phone's pixels and over the threshold above. So a
+  // phone baseline failing on its own, with its `.current.png` differing only around the header and
+  // the foot of the app, means a day has passed rather than that anything moved. UPDATE_SNAPSHOTS=1
+  // and a look at the picture is the answer; the alternative is pinning the date the app is run on,
+  // which is a change to the app rather than to these checks.
 
   // Pin the clock before anything is shot, because two things in these pictures are otherwise a
   // function of when the run started: the timeline's now line, which drifts with the hour and

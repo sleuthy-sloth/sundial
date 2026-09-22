@@ -25,14 +25,15 @@ import Agenda from './components/Agenda'
 import Glance from './components/Glance'
 import TabBar from './components/TabBar'
 import Profile from './components/Profile'
+import Week from './components/Week'
 
 const VIEW_KEY = 'sundial-view'
-const TABS = ['today', 'day', 'you']
+const TABS = ['today', 'week', 'day', 'you']
 
 export default function App() {
-  // Where you are: the plan, the clock, or the app's own settings — the three destinations the
-  // tab bar offers, and the same three at every width. The old names are read once so a browser
-  // that remembered them lands somewhere sensible instead of nowhere.
+  // Where you are: the plan, the week of it, the clock, or the app's own settings — the four
+  // destinations the tab bar offers, and the same four at every width. The old names are read
+  // once so a browser that remembered them lands somewhere sensible instead of nowhere.
   const [tab, setTab] = useState(() => {
     const remembered = localStorage.getItem(VIEW_KEY)
     if (TABS.includes(remembered)) return remembered
@@ -48,7 +49,7 @@ export default function App() {
 
   const nowMin = usePlannerClock()
   const {
-    day, setDay, today, blocks, inbox, routines, selectedId, subject,
+    day, setDay, today, blocks, inbox, week, routines, selectedId, subject,
     open, openRoutine, close, draft, setDraft, error, setError, leaving, settling,
     write, capture, addToSection, scheduleAt, toggleDone, editor,
     leftover, rollover, setRollover, moveLeftover, leaveOne,
@@ -141,6 +142,23 @@ export default function App() {
               templates={templates}
               templateNote={templateNote}
               onApplyTemplate={(id) => templateActions.apply(id, day)}
+            />
+          </div>
+        )}
+
+        {tab === 'week' && (
+          <div className="view">
+            <Week
+              days={week}
+              anchor={day}
+              today={today}
+              onPickDay={(iso) => {
+                // A day you tap is a day you want to work on, so the week hands you to Today
+                // rather than leaving you looking at it from a distance.
+                setDay(iso)
+                setTab('today')
+              }}
+              onShiftWeek={(delta) => setDay(shiftDay(day, delta))}
             />
           </div>
         )}

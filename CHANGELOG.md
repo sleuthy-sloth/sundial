@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+**A week reads as capacity, not as a calendar grid.** **Week** is the fourth destination along the
+foot of the app: seven columns, Monday first, each with the date, the time that day holds, what is
+left of it, and a bar for the share that is spoken for. Tap a column and that day opens in **Today**;
+the arrows beside the heading move a week at a time rather than a day. A day with nothing on it is a
+dash and a whole day open — no zero, no count, and nothing on the screen described as behind.
+
+The arithmetic is the part worth reading twice. `/api/week` has always answered with the durations
+added up, which counts an overlapping plan twice: 09:00 for 90 minutes and 10:00 for 60 is 150
+minutes of effort in 120 minutes of day. The days keep `blocks` and `minutes` exactly as they were
+for whatever already reads them, and gain `planned_minutes` (the spans merged), `open_minutes`,
+`block_count`, `completed_count` and `calendar_busy_minutes`. Open is the day minus one union of
+everything on it, plan and calendar together, because an hour your block and a meeting share is one
+hour and taking them off one at a time would call that hour free twice. An inbox item belongs to no
+day, a finished block still occupies its hour, and an all-day event takes the whole of the day it is
+dated.
+
+That union is pure functions in `backend/services/scheduling.py` — `merge_spans`, `union_minutes`,
+`block_spans`, `event_spans`, `day_stats` — and it mirrors the day view's own `occupied()` down to
+the merge rule, so the two cannot describe one day differently. None of it raises: a week holding an
+unreadable event row is a week with one event missing rather than a 500. The calendar's half is
+measured in the zone the day is lived in, and every event is clamped to the day it lands on, so an
+appointment running in from last night gives today the hour before midnight rather than all of it.
+
+Seven columns is a seventh of a phone, so the figures are mono, tabular, and never wrapped; below
+430px the word after the open figure and a day's block count step aside rather than spilling into the
+column beside them, and both are still in the day's own sentence. Each column carries that sentence
+as its accessible name, the arrow keys walk the columns and stop at the end of the week, and the
+focus ring is the one every other control draws. On the bar, solid ink is your plan, mid-ink is the
+hour your plan and the calendar share, and the calendar's own is hatched — three widths adding up to
+exactly the busy share, so a bar can never be longer than the day it describes.
+
+Counts: 455 backend tests (29 new), 143 unit (15 new), 333 browser checks (31 new). All eight visual
+baselines were re-captured: the foot of the app gained a destination, and that bar is in every one of
+those pictures. The week's own appearance is pinned by the layout checks rather than by a ninth
+baseline, because a picture of a week would depend on six days the suite does not seed.
+
 **A day you wrote once can be put on a day, and it never puts itself there.** A **template** is a
 list of lines — a name, an hour or none, how long, a colour — that holds still until you ask for it.
 **You** lists the ones you have and is where they are made, renamed, duplicated, filled in and
