@@ -16,6 +16,7 @@ import { api } from '../api'
 import { DAY_MIN, HOUR_PX, SNAP_MIN, snap, todayISO } from '../time'
 import { bucketOf } from '../agenda'
 import { isOccurrence, occurrenceOf } from '../routines'
+import { weekStart } from '../week'
 import { describeApply, payloadItems } from '../templates'
 import {
   ROLLOVER_DEFAULT, dismissed, leaveThere, rolloverAction, stillWaiting,
@@ -30,8 +31,7 @@ export function usePlanner({ contentRef }) {
   const [today, setToday] = useState(todayISO)
   const [blocks, setBlocks] = useState([])
   const [inbox, setInbox] = useState([])
-  // Read on every load, and drawn by nothing yet: the week the day sits in is already being
-  // fetched, and the screen that shows it is not here.
+  // Read on every load, for the week view: the seven days of the week the day is in.
   const [week, setWeek] = useState([])
   // The rules themselves, which the day view does not need and the editor does: an occurrence
   // knows which routine it belongs to, and the panel is where that routine is read and changed.
@@ -123,10 +123,13 @@ export function usePlanner({ contentRef }) {
 
     const weekTicket = weekLoad.current.begin()
     try {
-      const wk = await api.week(wanted, 7, control.signal)
+      // The week the day is in, Monday first, rather than seven days starting at the day: the
+      // week view draws a column per weekday, and a window that began on Wednesday would put
+      // Wednesday in the first column and Sunday nowhere.
+      const wk = await api.week(weekStart(wanted), 7, control.signal)
       if (weekLoad.current.isCurrent(weekTicket)) setWeek(wk.days)
     } catch {
-      // the week strip is decoration; a failure there must not blank the day
+      // the week is context for the plan; a failure there must not blank the day
     }
   }, [day])
 

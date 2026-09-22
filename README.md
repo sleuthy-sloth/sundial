@@ -19,9 +19,10 @@ single process.
 
 ## What it does
 
-Three destinations along the foot of the app, and it remembers which one you were in:
-**Today** for the plan, **Day** for the clock, **You** for the app's own settings — connecting a
-calendar among them, rather than in a column beside your day.
+Four destinations along the foot of the app, and it remembers which one you were in:
+**Today** for the plan, **Week** for what the days around it hold, **Day** for the clock, **You**
+for the app's own settings — connecting a calendar among them, rather than in a column beside your
+day.
 
 **Today** — the plan, and the way in. The day is cut into Anytime, Morning, Afternoon and Evening, each
 with a count and the span it actually covers. Rows sit on hairlines with the time in the
@@ -35,6 +36,15 @@ that being the question you open a planner to ask.
 the length, double-click empty space for a short block. Above 780px the rail returns beside it,
 which is where dragging a task out of the inbox and onto an hour still happens; on a phone those
 same tasks are in Today's Anytime section, one tap from the editor.
+
+**Week** — the same ledger, seven days wide: Monday first, one column a day, each with the date,
+the time that day holds, what is left of it, and a bar for the share that is spoken for. Tap a
+column and that day opens in Today; the arrows beside the heading move a week at a time. It is
+capacity rather than a grid, so a column says what a day is *made of* rather than only what is
+written on it: two blocks over the same hour are that hour and not two, and the calendar's own busy
+time is merged into the same bar rather than added beside it, because an hour your block and a
+meeting share is one hour. A day with nothing on it is a dash and a whole day open — no zero, no
+count, and nothing here described as behind.
 
 Blocks can repeat. Turning one into a routine makes it a **rule** rather than a row for every day
 it lands on: "Mon · Wed · Fri at 06:30" is said once, and only the days you change are written
@@ -119,11 +129,15 @@ CORS to get wrong and no second port to think about. SQLite holds the data, in W
 Parchment ground, ink text, solar amber for now and for selection, twilight for evening —
 and nothing decorative after that. Today and Day are one ledger seen two ways: a rail with a
 faint hour rule, blocks hanging off a thin spine, open intervals drawn as measured, named
-bands. Rows are separated by a hairline, not raised on cards; the colour you pick for a task
-is a slim edge rather than a pastel bubble; completion is a square you fill rather than a
-hollow circle. Time is set in IBM Plex Mono and everything else in Atkinson Hyperlegible
-Next, both self-hosted, so the columns of numbers line up and nothing is fetched from
-anywhere.
+bands. The week is that ledger opened seven days wide — seven columns on the same hairlines,
+the figures in Plex Mono because a seventh of a phone is all the room there is, and a bar over
+each day where solid ink is your plan, mid-ink is the hour your plan and a meeting share, and a
+hatched sliver is the calendar's own. The three widths add up to exactly the busy share, so a
+bar can never be longer than the day it describes. Rows are separated by a hairline, not
+raised on cards; the colour you pick for a task is a slim edge rather than a pastel bubble;
+completion is a square you fill rather than a hollow circle. Time is set in IBM Plex Mono and
+everything else in Atkinson Hyperlegible Next, both self-hosted, so the columns of numbers line
+up and nothing is fetched from anywhere.
 
 Contrast is measured, not guessed, and the numbers are in the comments beside each token in
 `styles.css`. Nothing rests with a shadow: the only one in the app appears while you are
@@ -229,7 +243,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           426 tests
+backend/test_*.py           455 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -240,10 +254,11 @@ frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/routines.js    the words for a repeat, and which days one starts from (pure)
 frontend/src/templates.js   what a template says about itself, and the list edits (pure)
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
-                            Routines, Templates, ApplyTemplate, Profile, Glyph, LedgerArt,
+                            Routines, Templates, ApplyTemplate, Week, Profile, Glyph, LedgerArt,
                             CalendarPanel, Notifications, Switch, YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   302 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/src/week.js        the week as capacity rather than as a grid (pure)
+frontend/e2e/ui_check.mjs   333 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -396,9 +411,9 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 403 tests
-cd frontend && npm test                                # 118 unit tests, node --test
-cd frontend && npm run check:ui                        # 276 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 455 tests
+cd frontend && npm test                                # 143 unit tests, node --test
+cd frontend && npm run check:ui                        # 333 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -484,6 +499,15 @@ where a block can be reached from, since a rule or a template with no day on scr
 else to be reached by. Neither is ever invented for you: the routine lands because you said every
 Monday, the template lands because you tapped it.
 
+The **week** came after, and it is a capacity reading rather than a grid: seven columns, Monday
+first, each with what the day holds and what is left of it, and a bar covering the share between
+them. The arithmetic is the part that needed care. The route has always answered with a sum of
+durations, which counts an overlapping plan twice — 09:00 for 90 minutes and 10:00 for 60 is 150
+minutes added up and 120 minutes of a day — so a day is unioned instead: plan and calendar merged
+into one set of hours, and open time is the day minus that. The day whose blocks overlap therefore
+reads 2h against a sum of 2h30, and the two numbers sit beside each other in the answer rather than
+one replacing the other.
+
 The honest gaps:
 
 - **Google is not switched on**, as above. The transport, the consent flow, the token file and
@@ -502,6 +526,9 @@ The honest gaps:
 - **A template applied by mistake is undone by hand.** Applying adds blocks and records nothing
   about where they came from, so there is no "remove what I just applied" — the blocks come off one
   at a time, like any other block.
+- **A week cannot be edited.** A column is a day to open, not a day to drop something on: moving a
+  block from one day to another means opening both. The week reads the plan the app last loaded, so
+  a change made somewhere else shows up when the app next looks rather than as it happens.
 - Notifications: the service worker is in place and listening, nothing sends yet.
 - Incremental sync (RFC 6578) is not implemented: a ctag decides whether to refetch at all,
   and a refetch takes the whole window. Windows are small enough that this is honest, and
