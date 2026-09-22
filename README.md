@@ -205,7 +205,8 @@ scripts/check_calendar.py   connect by hand, list the calendars, count what is i
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
 scripts/make_icons.py       the app icon and favicon: measured geometry, two layouts
-frontend/src/App.jsx        state and layout only
+frontend/src/App.jsx        the shell: the view you are in, and where each part goes
+frontend/src/hooks/          the day (usePlanner), the calendar, the pointer, the clock
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
                             Profile, Glyph, LedgerArt, CalendarPanel, Notifications, Switch,
