@@ -49,10 +49,11 @@ def get_week(start: Optional[str] = None, days: int = 7) -> dict:
     the gym twice a week would be two views of one week disagreeing.
 
     `blocks` and `minutes` are the shape this route has always answered with, and they stay:
-    `minutes` is the sum of the durations, which is what a strip of bars wants and is not what
-    the day holds when two blocks overlap. Everything a capacity reading needs is added beside
-    them — planned, open, counts and the calendar's own busy time, all unioned. The two numbers
-    disagree only where a plan overlaps itself, and that is exactly the case worth showing.
+    `minutes` is the sum of the durations of the blocks that have an hour, which is what a strip
+    of bars wants and is not what the day holds when two blocks overlap. Everything a capacity
+    reading needs is added beside them — planned, open, counts and the calendar's own busy time,
+    all unioned. The two numbers disagree only where a plan overlaps itself, and that is exactly
+    the case worth showing.
     """
     days = max(1, min(days, 31))
     start = start or today()
@@ -90,7 +91,9 @@ def get_week(start: Optional[str] = None, days: int = 7) -> dict:
             {
                 **stats,
                 "blocks": stats["block_count"],
-                "minutes": sum(b["duration_min"] for b in scheduled[day]),
+                "minutes": sum(
+                    b["duration_min"] for b in scheduled[day] if b.get("start_min") is not None
+                ),
             }
         )
     return {"start": span[0], "days": out}

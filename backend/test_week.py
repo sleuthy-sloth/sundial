@@ -412,3 +412,57 @@ def test_the_week_never_reports_more_open_time_than_a_day_holds(client):
 def test_the_days_are_the_days_asked_for_in_order(client):
     span = client.get("/api/week?start=2099-01-01&days=3").json()["days"]
     assert [d["day"] for d in span] == ["2099-01-01", "2099-01-02", "2099-01-03"]
+
+
+def test_a_block_with_a_day_and_no_hour_yet_holds_its_duration_against_nothing():
+    # The table's CHECK keeps `day` and `start_min` empty together, so no row answers this way
+    # yet — but it is the shape a later change to that CHECK allows, and the difference must not
+    # be silent: an hour that is missing read as midnight would put hours of planned time on the
+    # day with the longest bar in the week. day_stats is handed rows rather than a database, so
+    # the case can be asked about before it can be stored.
+    day = day_stats(
+        MONDAY,
+        [
+            {"day": MONDAY, "start_min": None, "duration_min": 90, "done": 1},
+            {"day": MONDAY, "start_min": 540, "duration_min": 30, "done": 0},
+        ],
+        [],
+        timezone.utc,
+    )
+    assert day["planned_minutes"] == 30
+    assert day["open_minutes"] == 1410
+    assert day["block_count"] == 2
+    assert day["completed_count"] == 1
+
+
+def test_a_day_of_blocks_with_no_hours_is_a_day_with_nothing_on_the_clock():
+    day = day_stats(
+        MONDAY, [{"day": MONDAY, "start_min": None, "duration_min": 90}], [], timezone.utc
+    )
+    assert day["planned_minutes"] == 0
+    assert day["open_minutes"] == 1440
+    assert day["block_count"] == 1
+    assert day["calendar_busy_minutes"] == 0
+
+
+def test_the_week_answers_for_a_stored_block_on_a_day_with_no_hour_yet(client):
+    # The same row, written where it will be written once the CHECK allows it. Nothing else in
+    # the route reads `start_min` — the counts count rows, the arithmetic spans them — so the
+    # week answers with a block and no minutes rather than a 500. The constraint is lifted for
+    # this insert alone, because the alternative is testing the route's arithmetic somewhere the
+    # route does not keep it.
+    with store.db() as conn:
+        conn.execute("PRAGMA ignore_check_constraints = ON")
+        conn.execute(
+            """INSERT INTO blocks (id, title, day, start_min, duration_min, updated_at)
+               VALUES (?, ?, ?, NULL, 90, ?)""",
+            ("no-hour", "Oil change", MONDAY, "2026-09-20T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    day = week(client)[MONDAY]
+    assert day["block_count"] == 1
+    assert day["blocks"] == 1
+    assert day["minutes"] == 0
+    assert day["planned_minutes"] == 0
+    assert day["open_minutes"] == 1440

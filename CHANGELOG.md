@@ -16,7 +16,12 @@ for whatever already reads them, and gain `planned_minutes` (the spans merged), 
 everything on it, plan and calendar together, because an hour your block and a meeting share is one
 hour and taking them off one at a time would call that hour free twice. An inbox item belongs to no
 day, a finished block still occupies its hour, and an all-day event takes the whole of the day it is
-dated.
+date.
+
+The counts count rows, though, not hours: a block that has been put on a day before it has been given
+a time counts as a block on that day and takes up none of it. The table does not allow that row yet
+and a later change will, so the week already answers for it — a missing hour read as midnight would
+put hours of planned time on whichever day had the longest bar, and nobody planned them.
 
 That union is pure functions in `backend/services/scheduling.py` — `merge_spans`, `union_minutes`,
 `block_spans`, `event_spans`, `day_stats` — and it mirrors the day view's own `occupied()` down to
@@ -33,7 +38,7 @@ focus ring is the one every other control draws. On the bar, solid ink is your p
 hour your plan and the calendar share, and the calendar's own is hatched — three widths adding up to
 exactly the busy share, so a bar can never be longer than the day it describes.
 
-Counts: 455 backend tests (29 new), 143 unit (15 new), 333 browser checks (31 new). All eight visual
+Counts: 458 backend tests (32 new), 143 unit (15 new), 333 browser checks (31 new). All eight visual
 baselines were re-captured: the foot of the app gained a destination, and that bar is in every one of
 those pictures. The week's own appearance is pinned by the layout checks rather than by a ninth
 baseline, because a picture of a week would depend on six days the suite does not seed.
