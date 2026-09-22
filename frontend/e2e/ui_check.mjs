@@ -1975,11 +1975,15 @@ const wantThemeLight = async () => {
   const cameBack = await until(async () => await onTheDay())
   check('importing brings the whole day back', cameBack, 'the promise, kept')
 
-  const after = await textOf('.data-note')
+  // The note is written when the import's own response arrives, and the block is back before
+  // that: reading the note once here raced the response, and on a slow host the element was
+  // still empty — the check failed for a reason that says nothing about the app. Poll for the
+  // note, then assert on whatever it says, empty or not.
+  const after = (await until(async () => await textOf('.data-note'))) || ''
   check(
     'and it reports what it replaced, and that notifications were left alone',
     /Replaced everything/.test(after) && /notification setting was left alone/.test(after),
-    after.slice(0, 110),
+    after ? after.slice(0, 110) : 'no note appeared',
   )
   const kept = after.match(/kept at (\S+?)\.$/)?.[1]
   check('and names the copy of what it replaced', Boolean(kept), kept || 'no path in the message')
