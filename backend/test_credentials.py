@@ -6,18 +6,26 @@ a value can smuggle a second entry into the file.
 
 Nothing here touches a real credential file: both paths are pointed at a temporary directory,
 and the round trip at the end proves the file is one the real reader will accept.
+
+The last section leaves the door alone and asks git a different question: whether every file
+the app keeps a credential in is a file git would commit. Nobody had asked it, which is how
+`.gitignore` came to name a file the app has never written.
 """
 
 from __future__ import annotations
 
 import stat
+import subprocess
+from pathlib import Path
 
 import pytest
 
 import caldav
+import calendar_service
 import credentials
 import env_file
 import google_oauth
+import push
 
 
 @pytest.fixture
@@ -141,3 +149,42 @@ def test_entering_a_client_id_again_does_not_log_anybody_out(envs):
     assert after.client_id == "new.apps.googleusercontent.com"
     assert after.refresh_token == "1//keep-me", "the connection survived the edit"
     assert google_oauth.load_configuration(None).account == "steve@example.com"
+
+
+# ------------------------------------------------------------------- and git must not see it
+
+
+# Every file the app keeps a credential in, asked of the module that writes it rather than
+# written out here. The list is the point: `.gitignore` named `google.json` for as long as the
+# app wrote `google.env`, and a hand-kept list of filenames drifts exactly the same way. A
+# provider added without an ignore rule now fails this suite.
+SECRET_FILES = {
+    "icloud": calendar_service.DEFAULT_CONFIG,
+    "google": google_oauth.DEFAULT_CONFIG,
+    "vapid": push.DEFAULT_VAPID,
+}
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def ignored_by_git(path: Path) -> bool:
+    """Ask git, because the question is what git does with the path, and a rule that only
+    looks like an ignore rule is the bug this exists for.
+
+    Deliberately not `--no-index`: a file that is ignored *and* already tracked is not ignored
+    in the sense that matters, so this has to go red on it.
+    """
+    return subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(path.relative_to(REPO_ROOT))],
+        cwd=REPO_ROOT,
+        capture_output=True,
+    ).returncode == 0
+
+
+@pytest.mark.parametrize("provider", sorted(SECRET_FILES))
+def test_the_file_a_provider_keeps_its_credential_in_is_one_git_ignores(provider):
+    path = SECRET_FILES[provider]
+    assert ignored_by_git(path), (
+        f"{path.name} is where {provider} credentials live, and git would commit it — "
+        f"add `{path.name}` to .gitignore"
+    )

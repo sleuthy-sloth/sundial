@@ -10,6 +10,7 @@ backend/*.db-shm
 
 # calendar credentials — never commit these
 icloud.env
+google.env
 google.json
 # the identity the app generates for itself the first time it has something to notify
 vapid.env
