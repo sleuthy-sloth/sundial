@@ -1938,8 +1938,8 @@ const wantThemeLight = async () => {
       // that would notice a table quietly dropping out of the file. It had lost the routines when
       // they shipped, and `settings` is where unfinished work is remembered.
       [
-        'calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
-        'settings',
+        'calendars', 'routines', 'routine_overrides', 'templates', 'template_blocks', 'blocks',
+        'events', 'sync_log', 'push_sent', 'settings',
       ].every((t) => Array.isArray(document.tables[t])),
     `format ${document.format}, version ${document.version}`,
   )
@@ -2405,18 +2405,27 @@ const wantThemeLight = async () => {
     )
 
     // The keyboard reaches the new controls and the house ring is drawn on them. Walking from the
-    // capture field, which is the control just before this section in the document.
+    // capture field, which is the control just before this section in the document — tabbing
+    // until focus is on the first answer rather than tabbing once, because the plan gained a
+    // control ("Apply template") between the two, and a check that counts stops breaks every
+    // time the day gains one.
     await page.locator('.capture-card input').click()
-    await page.keyboard.press('Tab')
-    const ring = await page.evaluate(() => {
-      const el = document.activeElement
-      const cs = getComputedStyle(el)
-      return {
-        what: `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`,
-        width: parseFloat(cs.outlineWidth) || 0,
-        style: cs.outlineStyle,
-      }
-    })
+    const ringAt = () =>
+      page.evaluate(() => {
+        const el = document.activeElement
+        const cs = getComputedStyle(el)
+        return {
+          what: `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`,
+          width: parseFloat(cs.outlineWidth) || 0,
+          style: cs.outlineStyle,
+        }
+      })
+    let ring = null
+    for (let step = 0; step < 6; step++) {
+      await page.keyboard.press('Tab')
+      ring = await ringAt()
+      if (ring.what.startsWith('button.leftover-do')) break
+    }
     check(
       'the keyboard lands on the first answer, with the ring every other control gets',
       ring.what.startsWith('button.leftover-do') && ring.style !== 'none' && ring.width >= 2,
@@ -2552,6 +2561,255 @@ const wantThemeLight = async () => {
     await openToday()
   }
 }
+
+// ---- templates: a day you wrote once --------------------------------------------------------
+// Two places, because the plan asks for both: the list you manage under You, and the two taps
+// that put one on the day. The check that matters most is the additive one — a template applied
+// over a day that already has a plan has to leave every minute of that plan where it was.
+//
+// Everything it seeds is named `ui-check …` and removed again in its own `finally`, including the
+// blocks it applies: the snapshots come next, and a block left on today is what broke the
+// finished-day shot the last time a section was added here.
+{
+  const templatesNow = async () => (await req('/templates')).templates
+  const called = async (name) => (await templatesNow()).find((t) => t.name === name) || null
+  const row = (id) => `.template-row[data-template-id="${id}"]`
+  const templatesMade = []
+  const blocksMade = []
+  const known = new Set()
+
+  const openYou = async () => {
+    await page.locator('.tabs button[data-tab="you"]').click()
+    await until(async () => (await page.locator('.template-new-name').count()) === 1)
+  }
+  const openToday = async () => {
+    await page.locator('.tabs button[data-tab="today"]').click()
+    await until(async () => (await page.locator('.agenda').count()) === 1)
+  }
+  /** The whole day as the server has it, remembering anything that was not there to begin with. */
+  const dayNow = async () => {
+    const day = await req(`/day?day=${today}`)
+    for (const b of [...day.blocks, ...day.inbox]) {
+      if (!known.has(b.id)) {
+        known.add(b.id)
+        blocksMade.push(b.id)
+      }
+    }
+    return day
+  }
+  // Baselines, so the checks read as "one more of these than before" rather than absolute counts.
+  const gyms = (day) => day.blocks.filter((b) => b.title === 'Gym' && b.start_min === 390).length
+  const waiting = (day) => day.inbox.filter((b) => b.title === 'Admin' && b.start_min === null).length
+
+  let beforeToday = []
+  let baseGyms = 0
+  let baseWaiting = 0
+  try {
+    // Nothing left by an earlier run, in case one failed half way through.
+    for (const t of await templatesNow()) {
+      if (t.name.startsWith('ui-check')) await req(`/templates/${t.id}`, { method: 'DELETE' })
+    }
+    // A block of its own on today, so the additive check has something real to protect: by this
+    // point in the run the suite has cleared away its own seeds and today is empty.
+    const anchor = await req('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'ui-check anchor', day: today, start_min: 13 * 60, duration_min: 45, color: 'amber',
+      }),
+    })
+    blocksMade.push(anchor.id)
+    const start = await dayNow()
+    beforeToday = start.blocks
+    baseGyms = gyms(start)
+    baseWaiting = waiting(start)
+    await openYou()
+
+    await page.locator('.template-new-name').fill('ui-check workday')
+    await page.locator('.template-make').click()
+    const workday = await until(async () => called('ui-check workday'))
+    if (workday) templatesMade.push(workday.id)
+    check('a template is made from the profile and is listed there', Boolean(workday),
+      workday ? workday.name : 'it never arrived')
+
+    const tid = workday ? workday.id : ''
+    check('and it starts with no lines rather than a pretend one',
+      Boolean(workday) && workday.items.length === 0,
+      workday ? `${workday.items.length} line(s)` : 'no template')
+    // The panel is a round trip behind a write, so the row itself is waited for: the API having
+    // the template is not the same as the row being on the screen. Found by CI, which is fast
+    // enough to read the screen before React has re-rendered it.
+    const empty = await until(async () => {
+      const said = await textOf(`${row(tid)} .template-what`)
+      return /Nothing in it yet/.test(said) ? said : null
+    })
+    check('and the row says it is empty rather than showing a zero', Boolean(empty),
+      empty || 'the row never said anything')
+    check('and there is nothing to apply yet, so that button is off',
+      await page.locator(`${row(tid)} .template-apply-to`).isDisabled())
+
+    if (tid) {
+      // The lines: a name, an hour, and one left in Anytime.
+      await page.locator(`${row(tid)} [data-template-act="contents"]`).click()
+      await until(async () => (await page.locator(`${row(tid)} .template-contents`).count()) === 1)
+      check('opening the contents shows an empty template with nothing in it yet',
+        (await page.locator(`${row(tid)} .template-item`).count()) === 0)
+
+      await page.locator(`${row(tid)} .item-add`).click()
+      await until(async () => (await page.locator(`${row(tid)} .template-item`).count()) === 1)
+      // An hour nobody chose is not an hour: a new line says Anytime, and its field is empty.
+      const timeField = await page.locator(`${row(tid)} .item-time`).first().inputValue()
+      check('adding a line gives it no hour, and it says Anytime rather than 00:00',
+        /Anytime/.test(await textOf(`${row(tid)} .item-anytime`)) && timeField === '',
+        `the field reads "${timeField}"`)
+
+      await page.locator(`${row(tid)} .item-title`).first().fill('Gym')
+      await page.locator(`${row(tid)} .item-time`).first().fill('06:30')
+      await page.locator(`${row(tid)} .item-minutes`).first().fill('60')
+      const timed = await until(async () => {
+        const t = await called('ui-check workday')
+        return t && t.items[0] && t.items[0].title === 'Gym' && t.items[0].start_min === 390
+          ? t
+          : null
+      })
+      check('typing a line writes it, at the hour it was given', Boolean(timed),
+        timed ? JSON.stringify(timed.items.map((i) => [i.title, i.start_min])) : 'not saved')
+
+      await page.locator(`${row(tid)} .item-add`).click()
+      await page.locator(`${row(tid)} .item-title`).nth(1).fill('Admin')
+      const second = await until(async () => {
+        const t = await called('ui-check workday')
+        return t && t.items.length === 2 && t.items[1].title === 'Admin' ? t : null
+      })
+      check('and a line left with no hour stays in Anytime',
+        Boolean(second) && second.items[1].start_min === null,
+        second ? JSON.stringify(second.items.map((i) => [i.title, i.start_min])) : 'not saved')
+      const counted = await until(async () => {
+        const said = await textOf(`${row(tid)} .template-what`)
+        return /2 items/.test(said) && /1 anytime/.test(said) ? said : null
+      })
+      check('and the row counts what is in it and what waits in Anytime', Boolean(counted),
+        counted || await textOf(`${row(tid)} .template-what`))
+
+      // The order is part of the template, so moving a line is a write of the whole list.
+      await page.locator(`${row(tid)} .item-down`).first().click()
+      const flipped = await until(async () => {
+        const t = await called('ui-check workday')
+        return t && t.items[0] && t.items[0].title === 'Admin' ? t : null
+      })
+      check('moving a line moves it, and the order is what is saved', Boolean(flipped),
+        flipped ? JSON.stringify(flipped.items.map((i) => i.title)) : 'not saved')
+      await page.locator(`${row(tid)} .item-up`).nth(1).click()
+      await until(async () => (await called('ui-check workday')).items[0].title === 'Gym')
+
+      // Applying from the panel under You. A template is one day's worth of plan: the lines with an
+      // hour land on the day, the lines without one wait in Anytime, and both are read back from
+      // the server rather than from the screen that just changed.
+      await page.locator(`${row(tid)} .template-apply-to`).click()
+      const arrived = await until(async () => {
+        const day = await dayNow()
+        return gyms(day) === baseGyms + 1 && waiting(day) === baseWaiting + 1 ? day : null
+      })
+      check('applying from the profile puts the lines on today', Boolean(arrived),
+        arrived ? `${arrived.blocks.length} block(s) on today, ${arrived.inbox.length} waiting` :
+          'the day did not change')
+      check('and the hour it was written at is the hour it landed at',
+        Boolean(arrived) && arrived.blocks.some((b) => b.title === 'Gym' && b.start_min === 390),
+        JSON.stringify(arrived ? arrived.blocks.map((b) => [b.title, b.start_min]) : []))
+      check('and the line with no hour waits in Anytime rather than landing at midnight',
+        Boolean(arrived) && arrived.inbox.some((b) => b.title === 'Admin' && b.start_min === null),
+        JSON.stringify(arrived ? arrived.inbox.map((b) => [b.title, b.start_min]) : []))
+      check('and nothing that was already planned was overwritten or moved',
+        beforeToday.every((before) => {
+          const still = (arrived ? arrived.blocks : []).find((b) => b.id === before.id)
+          return Boolean(still) && still.day === before.day &&
+            still.start_min === before.start_min && still.duration_min === before.duration_min
+        }),
+        `${beforeToday.length} block(s) were on today first`)
+
+      // The two taps on the day itself: a button, then the one you want.
+      await openToday()
+      await until(async () => (await page.locator('.template-apply-open').count()) === 1)
+      check('and it is offered on the day, next to where the day is',
+        (await page.locator('.template-apply-open').count()) === 1)
+      check('closed, it is a button and not a list of names standing open',
+        (await page.locator('.template-pick').count()) === 0)
+
+      await page.locator('.template-apply-open').click()
+      await until(async () => (await page.locator('.template-pick').count()) >= 1)
+      const pick = page.locator(`.template-pick[data-template-id="${tid}"]`)
+      const listed = await until(async () => {
+        const said = (await pick.count()) === 1 ? await pick.innerText() : ''
+        return /2 items/.test(said) ? said : null
+      })
+      check('and open it lists the templates by name and by what is in them', Boolean(listed),
+        listed || 'not listed')
+      const size = await pick.boundingBox()
+      check('and each one is a thumb\u2019s height', Boolean(size) && size.height >= 44,
+        `${Math.round(size ? size.height : 0)}px`)
+
+      await pick.click()
+      const twice = await until(async () => {
+        const day = await dayNow()
+        return gyms(day) === baseGyms + 2 && waiting(day) === baseWaiting + 2 ? day : null
+      })
+      check('picking one applies it to the day on screen', Boolean(twice),
+        twice ? `${twice.blocks.length} block(s)` : 'nothing landed')
+      check('and a second apply adds everything a second time rather than replacing or skipping',
+        Boolean(twice) && twice.blocks.filter((b) => b.title === 'Gym').length ===
+          beforeToday.filter((b) => b.title === 'Gym').length + 2,
+        twice ? `${twice.blocks.filter((b) => b.title === 'Gym').length} Gym(s)` : 'nothing landed')
+      const said = await until(async () => {
+        const note = await textOf('.template-note')
+        return /2 blocks added from ui-check workday/.test(note) ? note : null
+      })
+      check('and the note says what it did, in blocks', Boolean(said),
+        said || await textOf('.template-note'))
+
+      // Duplicate, rename and delete: the rest of the plan's list, from the panel.
+      await openYou()
+      await page.locator(`${row(tid)} [data-template-act="duplicate"]`).click()
+      const copy = await until(async () => called('ui-check workday copy'))
+      if (copy) templatesMade.push(copy.id)
+      const full = await called('ui-check workday')
+      check('duplicating makes a copy holding the same lines',
+        Boolean(copy) && Boolean(full) && copy.items.length === full.items.length &&
+          copy.items.map((i) => i.title).join() === full.items.map((i) => i.title).join(),
+        copy ? JSON.stringify(copy.items.map((i) => i.title)) : 'no copy')
+
+      if (copy) {
+        const nameBox = page.locator(`${row(copy.id)} .template-name`)
+        await nameBox.fill('ui-check weekend reset')
+        await nameBox.blur()
+        const renamed = await until(async () => called('ui-check weekend reset'))
+        check('and a template is renamed by typing in its own name', Boolean(renamed),
+          renamed ? renamed.name : `still ${copy.name}`)
+        check('and the one it was copied from keeps its own name',
+          Boolean(await called('ui-check workday')))
+
+        await page.locator(`${row(copy.id)} [data-template-act="delete"]`).click()
+        const gone = await until(async () => (await called('ui-check weekend reset')) === null)
+        check('and deleting a template deletes it, lines and all', Boolean(gone))
+        // The same round trip as the row above: the API has answered, and the screen is one render
+        // behind it. CI read 2 rows against 1 on the server before this waited.
+        await until(async () => (await page.locator(row(copy.id)).count()) === 0)
+        check('and the list on screen is the list the server has',
+          (await page.locator('.template-row').count()) === (await templatesNow()).length,
+          `${await page.locator('.template-row').count()} row(s), ` +
+            `${(await templatesNow()).length} on the server`)
+      }
+    }
+  } finally {
+    for (const id of blocksMade) await req(`/blocks/${id}`, { method: 'DELETE' }).catch(() => {})
+    for (const id of templatesMade) {
+      await req(`/templates/${id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    for (const b of await inboxNow()) {
+      if (b.title === 'Admin') await req(`/blocks/${b.id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    await openToday()
+  }
+}
+
 
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop

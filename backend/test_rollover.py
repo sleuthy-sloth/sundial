@@ -26,6 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app
+import bootstrap
 import export
 import store
 from clock import today
@@ -397,5 +398,9 @@ def test_the_settings_table_is_what_a_fresh_database_gets(client):
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(settings)")}
         versions = [r["version"] for r in conn.execute("SELECT version FROM schema_version")]
     assert {"key", "value", "updated_at"} <= columns
-    assert max(versions) == 6, "the migration that makes the table is the newest one on disk"
+    # 6 is the migration that made this table, so it has to have run — and everything on disk
+    # above it too, which is the part that does not need editing every time a table is added.
+    assert 6 in versions, "the migration that makes the settings table did not run"
+    newest = max(int(p.name.split("_", 1)[0]) for p in bootstrap.MIGRATIONS.glob("*.sql"))
+    assert max(versions) == newest, "a migration on disk was not applied"
     assert "settings" in export.TABLES

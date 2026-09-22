@@ -209,8 +209,8 @@ committing.
 ```
 backend/main.py             assembling the app: the routers, the lifespan, the SPA mount
 backend/app.py              the name `uvicorn app:app` is given; re-exports main's app
-backend/routers/            the API, one module per area — blocks, routines, week, calendar,
-                            google, data, push
+backend/routers/            the API, one module per area — blocks, routines, templates, week,
+                            calendar, google, data, push
 backend/schemas/            what a caller may send, one module per area
 backend/services/           the rules the routes ask about: the block rules, the routine rules,
                             the day rules
@@ -229,7 +229,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           376 tests
+backend/test_*.py           426 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -238,11 +238,12 @@ frontend/src/App.jsx        the shell: the view you are in, and where each part 
 frontend/src/hooks/          the day (usePlanner), the calendar, the pointer, the clock
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/routines.js    the words for a repeat, and which days one starts from (pure)
+frontend/src/templates.js   what a template says about itself, and the list edits (pure)
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
-                            Routines, Profile, Glyph, LedgerArt, CalendarPanel, Notifications,
-                            Switch, YourData
+                            Routines, Templates, ApplyTemplate, Profile, Glyph, LedgerArt,
+                            CalendarPanel, Notifications, Switch, YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   251 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   302 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -250,6 +251,7 @@ frontend/src/art.test.js    unit tests for the all-clear rule (node --test)
 frontend/src/calendar.test.js  unit tests for the panel's wording (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
+frontend/src/templates.test.js  unit tests for what a template says and the list edits (node --test)
 frontend/src/datafile.js    what the export panel may say about a file before using it
 scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
@@ -278,6 +280,15 @@ choice, and what to do with unfinished work is the first of them. It is in the d
 the backup is the database: a preference kept in one browser would be the single part of your
 setup a backup quietly drops. The export format went to version 3 when it joined the file, since
 a file promises the tables that existed when it was written.
+
+Templates are two tables beside the routines, `templates` and `template_blocks`, and they are the
+other way round from a rule: nothing recurs, nothing is generated, and a template reaches a day
+only when you apply it to one. It is a list of items with no day of their own — the day is given
+at apply time — and an item either has an hour or has none, in which case applying it puts it in
+Anytime. Applying inserts ordinary blocks beside whatever the day already held: nothing is read,
+moved or replaced, so a day that already had a plan on it keeps every minute of it, and two items
+at the same hour are two blocks at the same hour, which the day view draws and does not argue
+with. The export format is version 4 for them, for the same reason as above.
 
 ## Connecting a calendar
 
@@ -452,7 +463,7 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
-v0.6.0. The calendar is in the day now: the day's appointments are drawn on the timeline at the
+The calendar is in the day now: the day's appointments are drawn on the timeline at the
 hour their own clock says, readable in the same ink as a block and marked as not yours to move by
 a dotted hairline rather than by being faded. Where an appointment and a block share an hour, the
 block gives up half the column so both stay legible, and two appointments contesting that half are
@@ -462,7 +473,18 @@ itself, and two
 transports sit underneath, one of them switched on — iCloud syncs and is what ships, Google is
 built end to end behind a "coming soon" line. Under that, the 0.2.x daylight ledger, which was
 about trust rather than features: it keeps what you type, the day view describes the day
-accurately, and an upgrade reaches the phone on its own. The honest gaps:
+accurately, and an upgrade reaches the phone on its own.
+
+Repeats and templates came after, and they are opposite answers to the same question. A **routine**
+is a rule the app works days out of — Mon · Wed · Fri at 06:30 is one row that answers for every
+week, and editing the rule changes every day it has not been told otherwise about. A **template**
+is the other way round: a day you wrote once that sits still until you put it on a day, with no
+recurrence, no generation, and no day of its own until you name one. Both are listed in **You**,
+where a block can be reached from, since a rule or a template with no day on screen has nothing
+else to be reached by. Neither is ever invented for you: the routine lands because you said every
+Monday, the template lands because you tapped it.
+
+The honest gaps:
 
 - **Google is not switched on**, as above. The transport, the consent flow, the token file and
   the error handling are written and tested; the missing piece is a person in Google's console,
@@ -477,7 +499,9 @@ accurately, and an upgrade reaches the phone on its own. The honest gaps:
 - **Nothing is inferred from the calendar.** A clash shows you the over-booked hour and stops
   there — no nudging, no "reschedule this", no suggestion. It is context beside the plan, and
   the plan is still yours to change.
-- No repeating tasks or routines yet.
+- **A template applied by mistake is undone by hand.** Applying adds blocks and records nothing
+  about where they came from, so there is no "remove what I just applied" — the blocks come off one
+  at a time, like any other block.
 - Notifications: the service worker is in place and listening, nothing sends yet.
 - Incremental sync (RFC 6578) is not implemented: a ctag decides whether to refetch at all,
   and a refetch takes the whole window. Windows are small enough that this is honest, and

@@ -932,6 +932,185 @@ button { cursor: pointer; }
   color: var(--muted);
 }
 
+/* ---------------- templates ---------------- */
+
+/* A day you wrote once. Two places: the list of them under You, and the two-tap way to put one
+   on today from the plan itself. Both are quiet — a template is something you reach for, not a
+   thing the page is about — so nothing here is filled, coloured or counted. */
+
+.template-new { display: flex; gap: 8px; margin: 10px 0 4px; }
+.template-new input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+.template-new input:focus-visible { border-color: var(--accent); }
+.template-make {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+.template-make:hover:not(:disabled) { border-color: var(--edge); }
+.template-make:disabled { opacity: 0.55; cursor: default; }
+
+.template-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.template-row {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  padding: 8px 10px 10px;
+}
+.template-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+/* The name is a field: renaming is the one edit a template does not need a panel for, and a
+   pencil beside it would be a second control saying what the border already says. */
+.template-name {
+  flex: 1;
+  min-width: 9rem;
+  padding: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.template-name:hover { border-color: var(--line); }
+.template-name:focus-visible { border-color: var(--accent); background: var(--surface); }
+.template-what {
+  flex-basis: 100%;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.template-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.template-actions button {
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.template-actions button:hover:not(:disabled) { border-color: var(--edge); }
+.template-actions button:disabled { opacity: 0.55; cursor: default; }
+/* Solar, like every other consequence in this app. Never red. */
+.template-actions button.danger:hover { border-color: var(--now); color: var(--now); }
+/* The one that acts on a day. Stated, not filled: it is an action on today, not the page's
+   primary one, and filling it would make it look like the thing to do. */
+.template-actions .template-do { border-color: var(--line); }
+
+/* The lines of one template. A grid rather than a row of labels: it is a small list of small
+   things, and each line has to stay one line on a phone. */
+.template-contents {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-faint);
+}
+.template-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+.template-item input,
+.template-item select {
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-height: 40px;
+}
+.template-item input:focus-visible,
+.template-item select:focus-visible { border-color: var(--accent); }
+.template-item .item-title { flex: 1; min-width: 8rem; }
+.item-when { display: flex; align-items: center; gap: 6px; }
+.item-when .item-time { width: 8.5rem; }
+/* "Anytime" holds its place whether or not it is showing, so the fields beside it do not jump
+   sideways the moment a time is cleared — and no line ever reads as 00:00 unless it is 00:00. */
+.item-anytime { min-width: 3.4rem; font-size: 0.75rem; color: var(--muted); }
+.item-length { display: flex; align-items: center; gap: 6px; }
+.item-minutes { width: 4.5rem; font-family: var(--mono); }
+.item-units { min-width: 3rem; font-size: 0.75rem; color: var(--muted); }
+.item-color { flex: none; }
+.item-move { display: flex; gap: 4px; margin-left: auto; }
+.item-move button {
+  min-width: 44px;
+  min-height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.item-move button:hover:not(:disabled) { border-color: var(--edge); }
+.item-move button:disabled { opacity: 0.45; cursor: default; }
+.item-move button.danger:hover { border-color: var(--now); color: var(--now); }
+
+.template-contents-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.item-add {
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.item-add:hover { border-color: var(--edge); }
+.template-status { font-size: 0.75rem; }
+.item-blocked { color: var(--ink-2); }
+
+/* Applying one, from the plan. Closed it is a sentence and a button; open, the names. */
+.template-apply { margin: 10px 0 0; }
+.template-apply-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.template-apply-open {
+  min-height: 44px;
+  padding: 8px 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+.template-apply-open:hover { border-color: var(--edge); }
+.template-note { margin: 0; }
+
+.template-picks {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.template-pick {
+  width: 100%;
+  min-height: 44px;
+  display: block;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+.template-pick:hover:not(:disabled) { border-color: var(--edge); }
+.template-pick:disabled { opacity: 0.55; cursor: default; }
+.template-pick-name { display: block; font-weight: 500; }
+.template-pick-what {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.profile .template-list { margin-top: 12px; }
+
 /* ---------------- palette ---------------- */
 
 /* The eight colours are chosen by the user and validated by the API, so they keep their

@@ -16,11 +16,11 @@ export const FORMAT = 'sundial-export'
 
 /** The newest export format this build understands. Must match `VERSION` in export.py.
  *
- *  Version 2 added routines and their overrides, version 3 the settings table. It is a version
- *  bump rather than an addition because what a file promises is what existed when it was written:
- *  a version 1 file with no routines table is complete, and a version 2 file without one has been
- *  edited. */
-export const VERSION = 3
+ *  Version 2 added routines and their overrides, version 3 the settings table, version 4
+ *  templates and the items they are made of. It is a version bump rather than an addition
+ *  because what a file promises is what existed when it was written: a version 1 file with no
+ *  routines table is complete, and a version 2 file without one has been edited. */
+export const VERSION = 4
 
 /** The exact words the server requires before it will replace a database.
  *  Must match `IMPORT_CONFIRMATION` in backend/app.py. Deliberately not "true": a request that
@@ -31,8 +31,8 @@ export const CONFIRMATION = 'replace everything'
  *  A file missing one of these is refused here as well as there, because "missing" and "empty"
  *  are the same thing once imported, so the partial file would delete the part it left out. */
 export const TABLES = [
-  'calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
-  'settings',
+  'calendars', 'routines', 'routine_overrides', 'templates', 'template_blocks', 'blocks',
+  'events', 'sync_log', 'push_sent', 'settings',
 ]
 
 /** What each format version promised — `TABLES_BY_VERSION` in export.py.
@@ -43,17 +43,21 @@ export const TABLES = [
 export const TABLES_BY_VERSION = {
   1: ['calendars', 'blocks', 'events', 'sync_log', 'push_sent'],
   2: ['calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent'],
-  3: TABLES,
+  3: ['calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
+    'settings'],
+  4: TABLES,
 }
 
 /** The tables a person would recognise, and what to call them when counting them.
  *  The bookkeeping tables travel in the file and stay out of the sentence: naming them adds a
- *  word to read and nothing to know — which is why the overrides are not here and the routines
- *  are: "3 routines" is a thing you have. `settings` is one row at most and belongs with the
- *  bookkeeping; it is in the file, not in the sentence. */
+ *  word to read and nothing to know — which is why the overrides and the template items are not
+ *  here and the routines and the templates are: "3 routines" and "2 templates" are things you
+ *  have. `settings` is one row at most and belongs with the bookkeeping; it is in the file, not
+ *  in the sentence. */
 const SPEAKABLE = [
   ['blocks', 'block'],
   ['routines', 'routine'],
+  ['templates', 'template'],
   ['events', 'event'],
   ['calendars', 'calendar'],
 ]

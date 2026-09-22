@@ -5,6 +5,7 @@ import CalendarPanel from './CalendarPanel'
 import Notifications from './Notifications'
 import Routines from './Routines'
 import Switch from './Switch'
+import Templates from './Templates'
 import YourData from './YourData'
 
 /**
@@ -21,6 +22,7 @@ import YourData from './YourData'
  *
  * Routines are here for the same reason and one more: a rule with no day on screen this week
  * has nothing to tap, so the place that lists what this copy holds is the only way back to it.
+ * Templates are here for exactly that reason, and they hold still until applied.
  *
  * "Unfinished scheduled work" is a setting rather than a control on the day, even though the day is
  * where it shows: it is a decision about what the app may do on its own, and a decision like that
@@ -39,6 +41,10 @@ export default function Profile({
   onTheme,
   routines,
   onOpenRoutine,
+  templates,
+  templateNote,
+  templateActions,
+  today,
   rollover,
   onRollover,
 }) {
@@ -60,6 +66,13 @@ export default function Profile({
       </p>
 
       <Routines routines={routines} onOpen={onOpenRoutine} />
+
+      <Templates
+        templates={templates}
+        note={templateNote}
+        today={today}
+        actions={templateActions}
+      />
 
       <h2>Unfinished work</h2>
       {/* Three answers to one question, so three radios rather than a switch: a switch would have

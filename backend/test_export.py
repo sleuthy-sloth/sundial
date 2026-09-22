@@ -24,7 +24,7 @@ import app
 import export
 import store
 
-from services import routines
+from services import routines, templates
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
@@ -96,10 +96,11 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     before = everything()
 
     with store.db() as conn:
-        document = json.loads(json.dumps(export.dump(conn, 6)))  # through real JSON
+        document = json.loads(json.dumps(export.dump(conn, 7)))  # through real JSON
         assert export.counts(document) == {
-            "calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
-            "events": 1, "sync_log": 1, "push_sent": 0, "settings": 0,
+            "calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 0,
+            "template_blocks": 0, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
+            "settings": 0,
         }
 
     # Empty it, the way a fresh install on another machine would be. Importing the same
@@ -107,15 +108,16 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     # deletes ever ran.
     emptied = dict(document, tables={name: [] for name in export.TABLES})
     with store.db() as conn:
-        export.replace(conn, export.check(emptied, 6))
+        export.replace(conn, export.check(emptied, 7))
     assert everything() == {name: [] for name in export.TABLES}, "the import was not a replace"
 
     # And take them back to where they started.
     with store.db() as conn:
-        written = export.replace(conn, export.check(document, 6))
+        written = export.replace(conn, export.check(document, 7))
     assert everything() == before, "the round trip lost or changed something"
-    assert written == {"calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
-                       "events": 1, "sync_log": 1, "push_sent": 0, "settings": 0}
+    assert written == {"calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 0,
+                       "template_blocks": 0, "blocks": 2, "events": 1, "sync_log": 1,
+                       "push_sent": 0, "settings": 0}
 
 
 def test_a_routine_and_the_days_it_was_told_otherwise_survive_a_round_trip(database):
@@ -233,10 +235,75 @@ def test_it_refuses_a_file_from_a_newer_schema(database):
     # Migrations only run forwards, so a newer schema cannot be understood, and
     # part-understanding it is how data gets quietly dropped.
     with store.db() as conn:
-        document = export.dump(conn, 4)
-    document["schema_version"] = 5
-    with pytest.raises(export.ExportError, match="schema 5"):
-        export.check(document, 4)
+        document = export.dump(conn, 7)
+    document["schema_version"] = 8
+    with pytest.raises(export.ExportError, match="schema 8"):
+        export.check(document, 7)
+
+
+def test_a_file_written_before_templates_still_imports(database):
+    """A version 3 export has no template tables, and that is a whole file, not a partial one.
+
+    This is what the format version is for: the release that wrote that file had no templates,
+    so its absence is a fact about the file rather than a loss. Checked against the *current*
+    schema, because an import happens on today's build — a version 3 file arriving in a version
+    4 app is the ordinary case, and the refusal it must not get is "missing the templates".
+    """
+    seed()
+    with store.db() as conn:
+        document = export.dump(conn, 7)
+    document["version"] = 3
+    for name in ("templates", "template_blocks"):
+        del document["tables"][name]
+
+    tables = export.check(document, 7)  # does not raise
+    assert tables["templates"] == [] and tables["template_blocks"] == []
+    assert export.counts(document)["templates"] == 0
+
+
+def test_a_template_and_its_items_survive_a_round_trip(database):
+    """Every hour and every absence of one, out through real JSON and back.
+
+    A template item is the one row in the schema whose `start_min` is allowed to be NULL without
+    a matching `day` beside it, so a round trip that mangles NULL into 0 would turn an Anytime
+    item into a midnight block and nothing else would notice.
+    """
+    seed()
+    with store.db() as conn:
+        conn.execute(
+            "INSERT INTO templates (id, name, created_at, updated_at) "
+            "VALUES ('t1', 'Workday', '2026-09-21T06:00:00+00:00', '2026-09-21T06:00:00+00:00')"
+        )
+        conn.execute(
+            """INSERT INTO template_blocks
+                 (id, template_id, title, start_min, duration_min, color, icon, notes, sort_order)
+               VALUES ('i1', 't1', 'Gym', 390, 60, 'emerald', '', '', 0),
+                      ('i2', 't1', 'Admin', NULL, 45, 'amber', '', 'before the phones start', 1)"""
+        )
+
+    before = everything()
+
+    with store.db() as conn:
+        document = json.loads(json.dumps(export.dump(conn, 7)))
+    assert export.counts(document) == {
+        "calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 1,
+        "template_blocks": 2, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
+        "settings": 0,
+    }
+
+    emptied = dict(document, tables={name: [] for name in export.TABLES})
+    with store.db() as conn:
+        export.replace(conn, export.check(emptied, 7))
+        assert conn.execute("SELECT COUNT(*) AS n FROM template_blocks").fetchone()["n"] == 0
+        export.replace(conn, export.check(document, 7))
+
+    assert everything() == before, "the round trip lost or changed a template or an item"
+
+    with store.db() as conn:
+        items = templates.item_rows(conn, "t1")
+    assert [(i["title"], i["start_min"]) for i in items] == [
+        ("Gym", 390), ("Admin", None)
+    ], "an item with no hour came back with one"
 
 
 def test_it_refuses_a_file_that_is_missing_a_table(database):
@@ -335,7 +402,7 @@ def test_export_downloads_a_named_file_of_the_right_shape(client):
     )
     document = answer.json()
     assert document["format"] == export.FORMAT
-    assert document["schema_version"] == 6
+    assert document["schema_version"] == 7
     assert len(document["tables"]["blocks"]) == 2
     assert "push_subscriptions" not in document["tables"]
 
@@ -390,8 +457,8 @@ def test_the_round_trip_works_over_http_and_keeps_a_way_back(client):
     assert answer.status_code == 200
     answer = answer.json()
     assert answer["replaced"] == {"calendars": 1, "routines": 0, "routine_overrides": 0,
-                                  "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
-                                  "settings": 0}
+                                  "templates": 0, "template_blocks": 0, "blocks": 2, "events": 1,
+                                  "sync_log": 1, "push_sent": 0, "settings": 0}
     assert everything() == before
 
     # The database it replaced is copied first and named in the answer, so a mistaken

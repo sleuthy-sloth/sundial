@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { buildAgenda } from '../agenda'
 import { durText, hhmm } from '../time'
+import ApplyTemplate from './ApplyTemplate'
 import Row from './Row'
 import LedgerArt from './LedgerArt'
 
@@ -20,6 +21,7 @@ export default function Agenda({
   blocks, inbox, draft, captureRef, onDraft, onCapture, onOpen, onToggle, onAddAt,
   leftover = [], onMoveLeftover, onLeaveThere,
   leaving = [], settling = [], dayClear = false,
+  templates = [], templateNote = '', onApplyTemplate,
 }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -52,6 +54,11 @@ export default function Agenda({
           +
         </span>
       </form>
+
+      {/* A day you wrote once, offered here where the day is. Above the sections rather than
+          inside one: a template is not a part of the day, and applying one is a thing you do to
+          the whole of it. */}
+      <ApplyTemplate templates={templates} note={templateNote} onApply={onApplyTemplate} />
 
       {/* Yesterday's unfinished work, when the setting says to ask and there is any. Deliberately
           not one of the four parts of the day — it is not this day — so it is its own quiet heading
