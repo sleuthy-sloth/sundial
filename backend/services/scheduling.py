@@ -102,7 +102,10 @@ def block_spans(blocks: Iterable[Mapping]) -> list[Span]:
     """The blocks that are on a clock, as spans.
 
     An inbox item has no hour — the table's own CHECK keeps `day` and `start_min` empty
-    together — so it sits on no timeline and counts towards no day.
+    together — so it sits on no timeline and counts towards no day. A row that has a day but
+    no hour yet is skipped here for the same reason from the other side: it has been put
+    somewhere without being given a time, so it takes up no minutes. Reading its missing hour
+    as midnight would invent a stretch of planned time nobody planned.
     """
     return [
         (b["start_min"], b["start_min"] + b["duration_min"])
@@ -176,7 +179,11 @@ def day_stats(day: str, blocks: Sequence[Mapping], events: Sequence[Mapping], zo
         # same ninety minutes twice is a week that lies about the only thing it reports.
         "planned_minutes": union_minutes(plan),
         "open_minutes": max(0, DAY_MIN - union_minutes([*plan, *calendar])),
-        "block_count": len(scheduled),
-        "completed_count": sum(1 for b in scheduled if b.get("done")),
+        # Counted over every row on the day, not only the ones with an hour. A block can be put
+        # on a day before it is given a time, and it is still a block on that day; what it must
+        # not do is contribute minutes, because a missing hour read as midnight would invent
+        # hours of planned time that nobody planned.
+        "block_count": len(blocks),
+        "completed_count": sum(1 for b in blocks if b.get("done")),
         "calendar_busy_minutes": union_minutes(calendar),
     }

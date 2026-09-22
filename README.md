@@ -243,7 +243,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           455 tests
+backend/test_*.py           458 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -411,7 +411,7 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 455 tests
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 458 tests
 cd frontend && npm test                                # 143 unit tests, node --test
 cd frontend && npm run check:ui                        # 333 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
