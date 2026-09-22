@@ -42,12 +42,45 @@ def fresh_db():
     sundial.DB_PATH.unlink(missing_ok=True)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def vapid_file(tmp_path, monkeypatch):
-    """A throwaway VAPID identity, so no test touches the real one in the home directory."""
+    """A throwaway VAPID identity for every test, so none touches the real one.
+
+    Autouse because the cost of forgetting is not a failed test: `vapid_path()` falls back to
+    `DEFAULT_VAPID` at the repository root, so a test that reaches the key endpoint without
+    this fixture mints a new identity over the one a running deployment is using, and every
+    subscription made against the old key stops being deliverable in silence. The suite runs
+    from the deployed checkout, so that is one command away from real.
+    """
     target = tmp_path / "vapid.env"
     monkeypatch.setenv("SUNDIAL_VAPID_ENV", str(target))
     return target
+
+
+def _identity_on_disk():
+    """What the real file looks like, or None when there is no file there."""
+    try:
+        stat = push.DEFAULT_VAPID.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size, push.DEFAULT_VAPID.read_bytes())
+
+
+@pytest.fixture(autouse=True)
+def the_real_identity_is_left_alone():
+    """The check behind the fixture above: the file the app keeps for real is untouched.
+
+    Autouse and comparing before to after, rather than asserting the path is absent, so this
+    passes in a checkout that has a real identity — including the deployed one — and fails
+    only when a test wrote it. Take `vapid_file` away from a test that reaches
+    `/api/push/key` and this goes red, which is the only thing that makes it worth having:
+    the damage it catches is silent in every other place it could be noticed.
+    """
+    before = _identity_on_disk()
+    yield
+    assert _identity_on_disk() == before, (
+        f"a test wrote {push.DEFAULT_VAPID}. It needs the vapid_file fixture."
+    )
 
 
 @pytest.fixture
@@ -393,7 +426,7 @@ def client():
     return TestClient(sundial.app)
 
 
-def test_the_key_endpoint_hands_over_an_identity_the_browser_can_use(client, vapid_file):
+def test_the_key_endpoint_hands_over_an_identity_the_browser_can_use(client):
     body = client.get("/api/push/key").json()
     assert body["public_key"].startswith("B")
     assert len(body["public_key"]) == 87, "an uncompressed P-256 point, base64url, unpadded"
