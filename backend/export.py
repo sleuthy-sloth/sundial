@@ -22,7 +22,7 @@ What is deliberately not:
                          rebuilds itself.
 
 Nothing secret is at risk in a run of the mill export, because no credential lives in
-the database: the iCloud and Google identities are files (`icloud.env`, `google.json`),
+the database: the iCloud and Google identities are files (`icloud.env`, `google.env`),
 and this module never reads them.
 
 Standard library only, like `backup.py`, for the same reason: the moment you need this
