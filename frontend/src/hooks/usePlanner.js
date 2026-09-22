@@ -16,6 +16,9 @@ import { api } from '../api'
 import { DAY_MIN, HOUR_PX, SNAP_MIN, snap, todayISO } from '../time'
 import { bucketOf } from '../agenda'
 import { isOccurrence, occurrenceOf } from '../routines'
+import {
+  ROLLOVER_DEFAULT, dismissed, leaveThere, rolloverAction, stillWaiting,
+} from '../rollover'
 import { createLatest, createWriteQueue } from '../saving'
 
 /** Where a new task lands in a section that has nothing in it yet. */
@@ -32,6 +35,12 @@ export function usePlanner({ contentRef }) {
   // The rules themselves, which the day view does not need and the editor does: an occurrence
   // knows which routine it belongs to, and the panel is where that routine is read and changed.
   const [routines, setRoutines] = useState([])
+  // Yesterday's unfinished work, as the server reports it — only ever non-empty for today — and
+  // the ids this tab has already left alone. The setting that decides what happens to either is a
+  // row in the database, so it is read with the day rather than remembered here.
+  const [leftover, setLeftover] = useState([])
+  const [gone, setGone] = useState(() => dismissed(todayISO()))
+  const [rollover, setRolloverSetting] = useState(ROLLOVER_DEFAULT)
   const [selectedId, setSelectedId] = useState(null)
   const [routineId, setRoutineId] = useState(null)
   // Which half of a routine's day the panel is showing: the rule, or one day of it. Only ever
@@ -72,6 +81,7 @@ export function usePlanner({ contentRef }) {
         setBlocks(data.blocks)
         setInbox(data.inbox)
         setToday(data.today)
+        setLeftover(data.leftover ?? [])
         setError('')
       }
     } catch (e) {
@@ -85,6 +95,16 @@ export function usePlanner({ contentRef }) {
       if (dayLoad.current.isCurrent(ticket)) setRoutines(rules.routines)
     } catch {
       // leave whatever was there
+    }
+
+    // The app's settings, for the rollover decision. A failure here is the least harmful one in
+    // this function: what is left behind is the default, and the default is the answer that
+    // touches nothing until somebody taps.
+    try {
+      const stored = await api.settings(control.signal)
+      if (dayLoad.current.isCurrent(ticket)) setRolloverSetting(stored.rollover)
+    } catch {
+      // as above
     }
 
     const weekTicket = weekLoad.current.begin()
@@ -351,6 +371,83 @@ export function usePlanner({ contentRef }) {
     }
   }
 
+  /** What is left from yesterday, less what this tab has already left alone.
+   *
+   *  The setting decides whether any of it is drawn at all: "ask" shows the section, "leave" says
+   *  nothing about any of it, and "anytime" moves it — by itself, just below — so by the time the
+   *  page settles there is nothing left to show. Only one of the three ever writes to a day you
+   *  have already had, and it is the one you chose.
+   */
+  const offered = useMemo(
+    () => (rolloverAction(rollover, leftover) === 'ask' ? stillWaiting(leftover, gone) : []),
+    [rollover, leftover, gone],
+  )
+
+  // What this tab has left alone belongs to a day rather than to the tab. A session that stays
+  // open past midnight gets a new `today` from the server, and yesterday's "not now" must not
+  // follow it: a block still sitting there on the new day is one nobody has dealt with.
+  useEffect(() => setGone(dismissed(today)), [today])
+
+  /** The one thing on this page that happens without being tapped.
+   *
+   *  "Move to Anytime automatically" means exactly that: the first time today is looked at, the
+   *  unfinished blocks of yesterday go back to Anytime. Once per client day, because a write that
+   *  failed would otherwise be retried on every load for the rest of the afternoon — and because
+   *  moving them is what stops them qualifying, so a second pass would find nothing to do anyway.
+   */
+  const settled = useRef(null)
+  useEffect(() => {
+    if (rolloverAction(rollover, leftover) !== 'move' || settled.current === today) return
+    settled.current = today
+    ;(async () => {
+      try {
+        for (const block of leftover) {
+          await writes.current.run(block.id, () => api.patch(block.id, { unschedule: true }))
+        }
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    })()
+  }, [rollover, leftover, today, load])
+
+  /** Move one of yesterday's onto today, or back to Anytime.
+   *
+   *  Both are the ordinary re-day write, which is the whole reason none of this needed a table or a
+   *  marker: a block's day is where it is, so moving it is the record. The block keeps its hour
+   *  when it moves to Today, because that is the time it was already planned for. It does leave
+   *  yesterday — the section says so before you tap, and "leave there" is how you keep it there.
+   */
+  const moveLeftover = async (block, where) => {
+    const changes =
+      where === 'anytime' ? { unschedule: true } : { day: today, start_min: block.start_min }
+    try {
+      await writes.current.run(block.id, () => api.patch(block.id, changes))
+      await load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  /** Leave one where it is, for the rest of this tab's day. Nothing is written: the block is
+   *  already on the day it was, and not asking again is the whole of the answer. */
+  const leaveOne = (block) => setGone(leaveThere(today, block.id))
+
+  /** Change the setting. Optimistic, like a row being ticked: the choice should land under the
+   *  finger, and a refusal has to put the other one back rather than leave the panel saying
+   *  something the server did not store. */
+  const setRollover = async (value) => {
+    const before = rollover
+    setRolloverSetting(value)
+    try {
+      const saved = await api.patchSettings({ rollover: value })
+      setRolloverSetting(saved.rollover)
+    } catch (err) {
+      setRolloverSetting(before)
+      setError(err.message)
+    }
+  }
+
   const remove = async () => {
     const id = selectedId
     try {
@@ -405,6 +502,9 @@ export function usePlanner({ contentRef }) {
     selectedId, selected, subject, open, openRoutine, close,
     draft, setDraft, error, setError,
     leaving, settling,
+    // `leftover` here is what the section draws rather than the raw list: the setting and this
+    // tab's "leave there" have both had their say by the time it arrives.
+    leftover: offered, rollover, setRollover, moveLeftover, leaveOne,
     load, write, capture, addToSection, scheduleAt, toggleDone, remove, saveRoutine, editor,
   }
 }

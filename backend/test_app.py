@@ -137,6 +137,8 @@ def test_a_fresh_database_lands_migrated():
 
     assert {"icon", "external_uid"} <= columns  # 001 and 002
     assert {"calendars", "events", "sync_log"} <= tables  # 002
+    assert "routines" in tables and "routine_overrides" in tables  # 005
+    assert "settings" in tables  # 006
     assert versions == on_disk
 
 
@@ -328,7 +330,7 @@ def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
         # runner correctly decides it has nothing to do.
         conn.execute("DELETE FROM schema_version WHERE version >= 3")
 
-    assert sundial.migrate() == [3, 4, 5]
+    assert sundial.migrate() == [3, 4, 5, 6]
 
     with sundial.db() as conn:
         rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))

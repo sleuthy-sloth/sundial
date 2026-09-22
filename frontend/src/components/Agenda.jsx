@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { buildAgenda } from '../agenda'
-import { hhmm } from '../time'
+import { durText, hhmm } from '../time'
 import Row from './Row'
 import LedgerArt from './LedgerArt'
 
@@ -18,6 +18,7 @@ const spanOf = (items) => {
 
 export default function Agenda({
   blocks, inbox, draft, captureRef, onDraft, onCapture, onOpen, onToggle, onAddAt,
+  leftover = [], onMoveLeftover, onLeaveThere,
   leaving = [], settling = [], dayClear = false,
 }) {
   const [collapsed, setCollapsed] = useState(() => {
@@ -51,6 +52,51 @@ export default function Agenda({
           +
         </span>
       </form>
+
+      {/* Yesterday's unfinished work, when the setting says to ask and there is any. Deliberately
+          not one of the four parts of the day — it is not this day — so it is its own quiet heading
+          rather than a fifth section, and it goes as soon as it is dealt with.
+
+          Nothing here is a warning. No colour of its own, no count, no word for being late: three
+          ordinary buttons and the hour each one keeps. The one sentence is there because the first
+          two buttons move the block off yesterday, and that is worth saying before the tap rather
+          than after it. */}
+      {leftover.length > 0 && (
+        <section className="section section-leftover">
+          <div className="leftover-head">
+            <span className="leftover-name">Left from yesterday</span>
+          </div>
+          <p className="note leftover-note">
+            Moving one to Today or Anytime takes it off yesterday.
+          </p>
+          <div className="section-body">
+            {leftover.map((block) => (
+              <div className={`row leftover-row c-${block.color}`} key={block.id}>
+                <span className="row-time">{hhmm(block.start_min)}</span>
+                <span className="row-edge" />
+                <span className="row-body">
+                  <span className="row-title">{block.title}</span>
+                  <span className="row-meta">{durText(block.duration_min)}</span>
+                </span>
+                <span className="leftover-actions">
+                  <button type="button" className="leftover-do"
+                    onClick={() => onMoveLeftover(block, 'today')}>
+                    Today
+                  </button>
+                  <button type="button" className="leftover-do"
+                    onClick={() => onMoveLeftover(block, 'anytime')}>
+                    Anytime
+                  </button>
+                  <button type="button" className="leftover-do"
+                    onClick={() => onLeaveThere(block)}>
+                    Leave there
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {sections.map((section) => {
         const shut = collapsed.includes(section.key)

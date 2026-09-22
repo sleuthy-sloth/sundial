@@ -1333,6 +1333,62 @@ button { cursor: pointer; }
 .done-group .row { opacity: 0.75; }
 
 
+/* ---------------- what is left from yesterday ----------------
+
+   The one section on Today that is not about today, so it is named in its own words rather than
+   reusing the four parts of the day: a bare label instead of a collapsible rule, and no count
+   beside it. Everything about the rows is deliberately the ordinary row — the same time gutter,
+   the same colour edge, the same hairline — because the work is ordinary. What happened to it is
+   the only unusual thing, and three words say that.
+
+   No colour of its own and nothing that moves on its own. Three quiet buttons on the same
+   --surface-2 chrome the settings use, with ink labels rather than --accent, because --solar-mark
+   on --surface-2 is the pre-existing 4.22:1 pair this file already flags. Nothing here is the
+   recommended choice, so nothing here is filled or emphasised. */
+
+.section-leftover { margin-top: 20px; }
+.leftover-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.leftover-name {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.leftover-note { margin: 8px 0 2px; font-size: 0.75rem; color: var(--muted); }
+
+.row.leftover-row { flex-wrap: wrap; row-gap: 8px; padding-right: 0; }
+/* A row you cannot open and cannot tick does not light up under the pointer. */
+.row.leftover-row:hover { background: none; }
+.leftover-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.leftover-do {
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  cursor: pointer;
+  transition: background var(--t-quick) var(--ease-out);
+}
+.leftover-do:hover { background: var(--accent-soft); }
+
+@media (max-width: 780px) {
+  /* On a phone the three answers take a line of their own. Squeezed in beside the title they
+     would each fall under a thumb's width, and the title would be one word wide. */
+  .leftover-actions { flex: 1 0 100%; margin-left: 0; }
+  .leftover-do { flex: 1 1 auto; }
+}
+
+
 /* ---------------- how a task finishes ---------------- */
 
 /* The box fills first, then the row leaves once you have had time to read what you just
@@ -1435,6 +1491,33 @@ button { cursor: pointer; }
   cursor: pointer;
 }
 .profile p.note { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+/* Three answers to one question, as three radios. A switch can only say on or off, so two of
+   these would have had to hide behind a second control and one of them would have been left
+   unnamed. The input is a real radio — focusable, announced as a radio in a group — and the label
+   around it is the 44px target, so the touch size does not depend on the size of the dot. */
+.set-choice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.set-choice .set-label { padding: 0; font-size: 0.9375rem; }
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.choice input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--solar);
+}
+.choice-label { font-size: 0.9375rem; }
 
 
 /* ---------------- your data ----------------

@@ -573,7 +573,9 @@ def seed_routine(client):
 def test_routines_and_their_days_survive_a_round_trip(client):
     seed_routine(client)
     document = client.get("/api/export").json()
-    assert document["version"] == 2, "files that carry routines are a new format version"
+    # 3 since settings joined the file; 2 was the version routines brought. What matters here is
+    # that a file written now is not the file a version-1 sundial could read.
+    assert document["version"] == 3, "files that carry routines are a new format version"
     assert len(document["tables"]["routines"]) == 1
     assert len(document["tables"]["routine_overrides"]) == 2
     assert len(document["tables"]["routine_overrides"][0]) == 12

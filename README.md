@@ -44,8 +44,21 @@ list, and the panel says which of the two you are editing — that day, or the r
 change it. Every rule you have is listed in **You**, because a rule with no day on screen this
 week has nothing else to be found by.
 
-**You** — the app's own settings: what is connected and how fresh it is, the theme, and which
-version this copy is. Nothing here is about the day.
+**Yesterday's unfinished work is offered, not chased.** A block you did not get to stays on the
+day you planned it for. Open today and there is a section above the plan's four parts holding
+the ones still standing, each with the hour it had and three answers: **Today** (onto today, at
+that hour), **Anytime** (day and hour gone, back in the inbox), and **Leave there** (nothing
+moves, and it stops asking for the rest of the browser day). One sentence under the heading says
+the thing worth knowing before a tap: moving one takes it off yesterday. No count, no red, no
+word for being late.
+
+Which of those happens without being asked is a setting in **You** — ask me the next day, move to
+Anytime automatically, or leave on the original day — and it is a row in the database rather than
+a browser preference, so a backup carries it. Only one of the three ever writes to a day you have
+already had, and it is the one you chose.
+
+**You** — the app's own settings: what is connected and how fresh it is, the theme, what happens
+to unfinished work, and which version this copy is. Nothing here is about a particular day.
 
 Shared by both: a header that reads like an instrument (the day, the time now, and which
 view you are in), light and dark themes that follow your system, the free time between
@@ -260,6 +273,12 @@ instant, and a multi-day event cannot fit an invariant that says a block stays i
 day. Keeping them apart means `blocks` keeps meaning "the day I made", and sync only has
 to move rows between two shapes it owns.
 
+One more table, `settings`, holds the app's own answers rather than the day's — one row per
+choice, and what to do with unfinished work is the first of them. It is in the database because
+the backup is the database: a preference kept in one browser would be the single part of your
+setup a backup quietly drops. The export format went to version 3 when it joined the file, since
+a file promises the tables that existed when it was written.
+
 ## Connecting a calendar
 
 Calendar sync is **read-only**. Your calendar comes in; nothing goes back out, so the worst a
@@ -366,9 +385,9 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 376 tests
-cd frontend && npm test                                # 106 unit tests, node --test
-cd frontend && npm run check:ui                        # 251 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 403 tests
+cd frontend && npm test                                # 118 unit tests, node --test
+cd frontend && npm run check:ui                        # 276 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 

@@ -21,7 +21,7 @@ from fastapi import FastAPI
 
 import push
 from bootstrap import bootstrap
-from routers import blocks, calendar, data, google, routines, week
+from routers import blocks, calendar, data, google, routines, settings, week
 from routers import push as push_routes  # the routes; `push` above is the sending
 from spa import SpaStaticFiles
 from store import db
@@ -86,6 +86,7 @@ app.include_router(data.router)
 app.include_router(google.router)
 app.include_router(push_routes.router)
 app.include_router(routines.router)
+app.include_router(settings.router)
 app.include_router(week.router)
 
 
