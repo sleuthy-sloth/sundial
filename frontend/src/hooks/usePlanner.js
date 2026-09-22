@@ -16,6 +16,7 @@ import { api } from '../api'
 import { DAY_MIN, HOUR_PX, SNAP_MIN, snap, todayISO } from '../time'
 import { bucketOf } from '../agenda'
 import { isOccurrence, occurrenceOf } from '../routines'
+import { describeApply, payloadItems } from '../templates'
 import {
   ROLLOVER_DEFAULT, dismissed, leaveThere, rolloverAction, stillWaiting,
 } from '../rollover'
@@ -35,6 +36,10 @@ export function usePlanner({ contentRef }) {
   // The rules themselves, which the day view does not need and the editor does: an occurrence
   // knows which routine it belongs to, and the panel is where that routine is read and changed.
   const [routines, setRoutines] = useState([])
+  // The templates, and what the last apply did. The note is not a status flag and never expires
+  // on a timer: it says what happened, and the next thing you do replaces it.
+  const [templates, setTemplates] = useState([])
+  const [templateNote, setTemplateNote] = useState('')
   // Yesterday's unfinished work, as the server reports it — only ever non-empty for today — and
   // the ids this tab has already left alone. The setting that decides what happens to either is a
   // row in the database, so it is read with the day rather than remembered here.
@@ -95,6 +100,15 @@ export function usePlanner({ contentRef }) {
       if (dayLoad.current.isCurrent(ticket)) setRoutines(rules.routines)
     } catch {
       // leave whatever was there
+    }
+
+    // The templates, for the panel and for the apply control in Today. Same reasoning as the
+    // rules: nothing about the day that is already drawn depends on them arriving.
+    try {
+      const stored = await api.templates(control.signal)
+      if (dayLoad.current.isCurrent(ticket)) setTemplates(stored.templates)
+    } catch {
+      // as above
     }
 
     // The app's settings, for the rollover decision. A failure here is the least harmful one in
@@ -483,6 +497,88 @@ export function usePlanner({ contentRef }) {
     return remove()
   }
 
+  /** A template's contents, saved as one list.
+   *
+   *  Keyed through the write queue on the template's id, like a routine's fields: two edits in
+   *  quick succession are two writes of the whole list, and the second one must not be overtaken
+   *  by the first. The reply is not applied locally — the queue's ordering is what makes the
+   *  last write the one that stands, and a reload after it is what puts the server's order back
+   *  on the screen.
+   */
+  const saveTemplateItems = async (id, items) => {
+    await writes.current.run(id, () => api.putTemplateItems(id, payloadItems(items)))
+    await load()
+  }
+
+  /** Everything about a template except its contents, which have their own path above.
+   *
+   *  Handed to the panel as one object rather than as six props: the panel does not need to know
+   *  which of these goes to which route, and the list is long enough that six props would be
+   *  six chances to pass the wrong one.
+   */
+  const templateActions = {
+    async create(name) {
+      try {
+        const made = await api.createTemplate({ name })
+        setTemplateNote(`${made.name} is ready to fill in.`)
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async rename(id, name) {
+      try {
+        await api.renameTemplate(id, name)
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async duplicate(id) {
+      try {
+        const copy = await api.duplicateTemplate(id)
+        setTemplateNote(`${copy.name} is a copy of ${templates.find((t) => t.id === id)?.name}.`)
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async remove(id) {
+      try {
+        await writes.current.run(id, () => api.removeTemplate(id))
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async saveItems(id, items) {
+      try {
+        await saveTemplateItems(id, items)
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    /** Put a template on a day, and say what that added.
+     *
+     *  The day is handed in rather than read from the screen: the panel under You always applies
+     *  to today and says so on the button, and the control in Today applies to the day being
+     *  looked at. Neither of those is a guess this function should be making.
+     *
+     *  Additive on purpose: this reads nothing, moves nothing and replaces nothing, so a day
+     *  that already has a plan on it keeps the plan. An apply that lands twice is two of
+     *  everything, which is the honest answer — there is no "already applied" to notice.
+     */
+    async apply(id, on) {
+      try {
+        const result = await api.applyTemplate(id, on ?? day)
+        setTemplateNote(describeApply(result))
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+  }
+
   /** What the editor panel is handed. One object, so the panel does not have to know which
    *  kind of thing it is saving: `onSave` goes to whichever half is on screen. */
   const editor = {
@@ -505,6 +601,7 @@ export function usePlanner({ contentRef }) {
     // `leftover` here is what the section draws rather than the raw list: the setting and this
     // tab's "leave there" have both had their say by the time it arrives.
     leftover: offered, rollover, setRollover, moveLeftover, leaveOne,
+    templates, templateNote, templateActions,
     load, write, capture, addToSection, scheduleAt, toggleDone, remove, saveRoutine, editor,
   }
 }

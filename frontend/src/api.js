@@ -94,6 +94,24 @@ export const api = {
     }),
   resetOccurrence: (id, day) =>
     req(`/api/routines/${id}/occurrences/${day}`, { method: 'DELETE' }),
+  // Templates. A day structure rather than a rule: the whole item list is replaced in one PUT
+  // because the order is part of what is being saved, and applying is one request rather than
+  // one per block — so a half-applied workday cannot happen.
+  templates: (signal) => req('/api/templates', { signal }),
+  createTemplate: (template) =>
+    req('/api/templates', { method: 'POST', body: JSON.stringify(template) }),
+  renameTemplate: (id, name) =>
+    req(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  putTemplateItems: (id, items) =>
+    req(`/api/templates/${id}/blocks`, { method: 'PUT', body: JSON.stringify({ items }) }),
+  duplicateTemplate: (id, name) =>
+    req(`/api/templates/${id}/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify(name ? { name } : {}),
+    }),
+  removeTemplate: (id) => req(`/api/templates/${id}`, { method: 'DELETE' }),
+  applyTemplate: (id, day) =>
+    req(`/api/templates/${id}/apply`, { method: 'POST', body: JSON.stringify({ day }) }),
   // Leaving. The export is the one read that arrives as a download, so it is fetched whole
   // rather than through `req`: the reply's own Content-Disposition names the file.
   exportAll: async () => {

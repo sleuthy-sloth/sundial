@@ -42,23 +42,26 @@ from typing import Any
 FORMAT = "sundial-export"
 
 # 1: calendars, blocks, events and the two logs. 2: routines and their overrides. 3: the settings
-# table.
+# table. 4: templates and the items they are made of.
 #
 # The number is not decoration. What a file promises is what existed when it was written, so a
 # version 1 file that has no routines table is a complete file — there were no routines in the
 # app that wrote it — while a version 2 file without one has been edited or truncated. Reading
 # the promise off the file's own version is what lets an export from before this release import
 # without being refused for a table that did not exist yet.
-VERSION = 3
+VERSION = 4
 
 # Every table carried, in an order that satisfies the foreign keys when it is put back:
-# `events` references `calendars` and `routine_overrides` references `routines`, so the parents
-# go in first. Deletion walks it backwards. `settings` has no foreign key either way and sits
-# last, which is where a table about the app rather than about a day belongs.
+# `events` references `calendars`, `routine_overrides` references `routines` and
+# `template_blocks` references `templates`, so the parents go in first. Deletion walks it
+# backwards. `settings` has no foreign key either way and sits last, which is where a table
+# about the app rather than about a day belongs.
 TABLES: tuple[str, ...] = (
     "calendars",
     "routines",
     "routine_overrides",
+    "templates",
+    "template_blocks",
     "blocks",
     "events",
     "sync_log",
@@ -71,7 +74,9 @@ TABLES: tuple[str, ...] = (
 TABLES_BY_VERSION: dict[int, tuple[str, ...]] = {
     1: ("calendars", "blocks", "events", "sync_log", "push_sent"),
     2: ("calendars", "routines", "routine_overrides", "blocks", "events", "sync_log", "push_sent"),
-    3: TABLES,
+    3: ("calendars", "routines", "routine_overrides", "blocks", "events", "sync_log", "push_sent",
+        "settings"),
+    4: TABLES,
 }
 
 # Present in the database, absent from the file, on purpose. Each entry is the sentence

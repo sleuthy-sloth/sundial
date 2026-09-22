@@ -52,6 +52,7 @@ export default function App() {
     open, openRoutine, close, draft, setDraft, error, setError, leaving, settling,
     write, capture, addToSection, scheduleAt, toggleDone, editor,
     leftover, rollover, setRollover, moveLeftover, leaveOne,
+    templates, templateNote, templateActions,
   } = usePlanner({ contentRef })
   const {
     calendar, calendarDay, syncing, note, connecting,
@@ -137,6 +138,9 @@ export default function App() {
               leaving={leaving}
               settling={settling}
               dayClear={dayIsClear(blocks, inbox, day, today)}
+              templates={templates}
+              templateNote={templateNote}
+              onApplyTemplate={(id) => templateActions.apply(id, day)}
             />
           </div>
         )}
@@ -179,6 +183,10 @@ export default function App() {
               onTheme={toggleTheme}
               routines={routines}
               onOpenRoutine={openRoutine}
+              templates={templates}
+              templateNote={templateNote}
+              templateActions={templateActions}
+              today={today}
               rollover={rollover}
               onRollover={setRollover}
             />

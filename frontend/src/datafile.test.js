@@ -34,12 +34,14 @@ function good(overrides = {}) {
   return {
     format: FORMAT,
     version: VERSION,
-    schema_version: 6,
+    schema_version: 7,
     exported_at: '2026-09-21T12:00:00+00:00',
     tables: {
       calendars: [{ ref: 'home' }],
       routines: [],
       routine_overrides: [],
+      templates: [],
+      template_blocks: [],
       blocks: [{ id: 'b1' }, { id: 'b2' }],
       events: [{ id: 'e1' }],
       sync_log: [],
@@ -54,8 +56,8 @@ test('a complete export is described in terms a person counts things in', () => 
   const seen = summarize(good())
   assert.equal(seen.ok, true)
   assert.deepEqual(seen.counts, {
-    calendars: 1, routines: 0, routine_overrides: 0, blocks: 2, events: 1, sync_log: 0,
-    push_sent: 0, settings: 0,
+    calendars: 1, routines: 0, routine_overrides: 0, templates: 0, template_blocks: 0,
+    blocks: 2, events: 1, sync_log: 0, push_sent: 0, settings: 0,
   })
   assert.equal(seen.says, '2 blocks, 1 event and 1 calendar')
 })
@@ -102,6 +104,8 @@ test('a file from before settings is a whole file, and one missing them today is
   const older = { ...good(), version: 2 }
   older.tables = { ...older.tables }
   delete older.tables.settings
+  delete older.tables.templates
+  delete older.tables.template_blocks
   assert.equal(summarize(older).ok, true, summarize(older).why)
 
   const current = good()
@@ -111,12 +115,46 @@ test('a file from before settings is a whole file, and one missing them today is
   assert.match(seen.why, /no settings/)
 })
 
+test('a file from before templates is a whole file, and one missing them today is not', () => {
+  // Version 3 promised settings and no templates. The check that matters is the one that came
+  // with the version bump: a file written by the release before templates must still import,
+  // because its absence is a fact about that file rather than a loss from this one.
+  const older = { ...good(), version: 3 }
+  older.tables = { ...older.tables }
+  delete older.tables.templates
+  delete older.tables.template_blocks
+  const ok = summarize(older)
+  assert.equal(ok.ok, true, ok.why)
+  assert.equal(ok.counts.templates, 0)
+
+  const current = good()
+  delete current.tables.template_blocks
+  const seen = summarize(current)
+  assert.equal(seen.ok, false)
+  assert.match(seen.why, /no template_blocks/)
+})
+
+test('a template is counted out loud, and its lines are not', () => {
+  // The same rule as routines: "2 templates" is a thing you have. Nine template items are the
+  // contents of one of them, and counting them in the sentence would be counting the wrong thing.
+  const seen = summarize(
+    good({
+      tables: {
+        ...good().tables,
+        templates: [{ id: 't1' }, { id: 't2' }],
+        template_blocks: Array.from({ length: 9 }, (_, i) => ({ id: `i${i}` })),
+      },
+    }),
+  )
+  assert.equal(seen.says, '2 blocks, 2 templates, 1 event and 1 calendar')
+})
+
 test('an empty export says so rather than listing zeroes', () => {
   const seen = summarize(
     good({
       tables: {
-        calendars: [], routines: [], routine_overrides: [], blocks: [], events: [],
-        sync_log: [], push_sent: [], settings: [],
+        calendars: [], routines: [], routine_overrides: [], templates: [], template_blocks: [],
+        blocks: [], events: [], sync_log: [], push_sent: [], settings: [],
       },
     }),
   )
