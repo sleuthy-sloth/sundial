@@ -808,6 +808,130 @@ button { cursor: pointer; }
 .editor-actions button.danger:hover { border-color: var(--now); color: var(--now); }
 .muted { color: var(--muted); font-size: 0.8125rem; align-self: center; }
 
+/* ---------------- routines ----------------
+
+   A routine is a rule, and the three places it shows up say so three ways, because each is read
+   in a different posture. On the clock the block's hairline goes dotted — the same mark an
+   appointment wears, and for the same reason: you did not type this one today. In a list the row
+   carries the loop. In the editor the panel says, in words, which half of the rule is about to
+   change, before you change it; that last one is the one that matters, because "change this day"
+   and "change every day" are the same two clicks apart. */
+
+.block.routine { border-style: dotted; border-left-style: solid; }
+
+.block-repeat,
+.row-repeat { display: inline-flex; align-items: center; color: var(--muted); }
+.block-repeat { align-self: center; margin-left: 6px; }
+.block-repeat svg { width: 14px; height: 14px; }
+.row-repeat { margin-right: 6px; }
+
+.routine-head {
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  background: var(--surface-2);
+  padding: 9px 11px;
+  margin-bottom: 6px;
+}
+.routine-what {
+  display: flex;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.routine-what svg { flex: none; width: 15px; height: 15px; margin-top: 2px; }
+.routine-what b { color: var(--text); font-weight: 600; }
+
+/* The switch itself. Both halves are the same size, because neither is the default: which one
+   you wanted depends on what you were looking at when you opened this. */
+.halves { display: flex; gap: 6px; margin-top: 9px; }
+.halves button {
+  flex: 1;
+  min-height: 40px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.halves button.on,
+.weekday.on {
+  border-color: var(--edge);
+  color: var(--edge);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.repeat-field select,
+.repeat-field input[type='number'] {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  min-height: 40px;
+}
+.repeat-kind { flex: 1; min-width: 0; }
+.weeks-input {
+  width: 4.5rem;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.weekdays { display: flex; gap: 5px; margin-top: 8px; }
+.weekday {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+/* The last day of a custom repeat cannot be switched off — the API refuses a rule with no
+   days — so the button says it cannot rather than failing when pressed. */
+.weekday:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.repeat-go {
+  margin-top: 8px;
+  background: var(--surface-2);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  min-height: 40px;
+}
+.repeat-go:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.field-note {
+  display: block;
+  margin-top: 7px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* The list of rules, in You. */
+.routine-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.routine-open {
+  width: 100%;
+  display: block;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  padding: 10px 12px;
+}
+.routine-title { display: block; font-weight: 500; }
+.routine-when {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 /* ---------------- palette ---------------- */
 
 /* The eight colours are chosen by the user and validated by the API, so they keep their
@@ -998,6 +1122,8 @@ button { cursor: pointer; }
   }
   .editor-actions button { padding: 12px 14px; }
   .icon-pick { min-height: 38px; }
+  /* Thumb reach, for the controls a sheet's worth of typing leads to. */
+  .weekday, .halves button, .repeat-go { min-height: 44px; }
 
   .content { margin: 0 12px 200px; margin-left: 3.25rem; }
   .hour-label { left: -2.875rem; width: 2.375rem; }

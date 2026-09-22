@@ -14,8 +14,12 @@
  *  file an export: the filename is the first thing a person changes. */
 export const FORMAT = 'sundial-export'
 
-/** The newest export format this build understands. Must match `VERSION` in export.py. */
-export const VERSION = 1
+/** The newest export format this build understands. Must match `VERSION` in export.py.
+ *
+ *  Version 2 added routines and their overrides. It is a version bump rather than an addition
+ *  because what a file promises is what existed when it was written: a version 1 file with no
+ *  routines table is complete, and a version 2 file without one has been edited. */
+export const VERSION = 2
 
 /** The exact words the server requires before it will replace a database.
  *  Must match `IMPORT_CONFIRMATION` in backend/app.py. Deliberately not "true": a request that
@@ -25,13 +29,27 @@ export const CONFIRMATION = 'replace everything'
 /** Every table a complete export carries — the same list as `TABLES` in backend/export.py.
  *  A file missing one of these is refused here as well as there, because "missing" and "empty"
  *  are the same thing once imported, so the partial file would delete the part it left out. */
-export const TABLES = ['calendars', 'blocks', 'events', 'sync_log', 'push_sent']
+export const TABLES = [
+  'calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
+]
+
+/** What each format version promised — `TABLES_BY_VERSION` in export.py.
+ *
+ *  The panel will not offer the button for a file it thinks is incomplete, so refusing a file
+ *  the server would have accepted is a real refusal with a wrong sentence on it. An export
+ *  taken before routines existed has five tables and no routines, and that is a whole file. */
+export const TABLES_BY_VERSION = {
+  1: ['calendars', 'blocks', 'events', 'sync_log', 'push_sent'],
+  2: TABLES,
+}
 
 /** The tables a person would recognise, and what to call them when counting them.
  *  The bookkeeping tables travel in the file and stay out of the sentence: naming them adds a
- *  word to read and nothing to know. */
+ *  word to read and nothing to know — which is why the overrides are not here and the routines
+ *  are: "3 routines" is a thing you have. */
 const SPEAKABLE = [
   ['blocks', 'block'],
+  ['routines', 'routine'],
   ['events', 'event'],
   ['calendars', 'calendar'],
 ]
@@ -57,11 +75,14 @@ export function summarize(payload) {
   if (!tables || typeof tables !== 'object') {
     return { ok: false, why: 'that export has no tables in it.' }
   }
-  const missing = TABLES.filter((name) => !Array.isArray(tables[name]))
+  // What this file promised, not what this build carries: a version 1 export has no routines
+  // because there were none, and calling that incomplete would refuse a file the server takes.
+  const promised = TABLES_BY_VERSION[payload.version] ?? TABLES
+  const missing = promised.filter((name) => !Array.isArray(tables[name]))
   if (missing.length) {
     return { ok: false, why: `that export is incomplete — no ${missing.join(', ')}.` }
   }
-  const counts = Object.fromEntries(TABLES.map((name) => [name, tables[name].length]))
+  const counts = Object.fromEntries(TABLES.map((name) => [name, (tables[name] ?? []).length]))
   return { ok: true, counts, says: describe(counts) }
 }
 

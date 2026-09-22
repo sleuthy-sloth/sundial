@@ -21,7 +21,7 @@ export default function Row({ block, linked, leaving, settling, onOpen, onToggle
   if (settling) classes.push('settling')
 
   return (
-    <div className={classes.join(' ')}>
+    <div className={classes.join(' ')} data-routine={block.source === 'routine' ? '1' : undefined}>
       <button
         type="button"
         className="notch"
@@ -40,6 +40,13 @@ export default function Row({ block, linked, leaving, settling, onOpen, onToggle
             {linked && (
               <span className="row-link" title="Linked to a calendar event">
                 <Glyph name="link" />
+              </span>
+            )}
+            {/* A repeating block is worth saying out loud on the list, where there is no
+                column to give it away: the same title comes back tomorrow. */}
+            {block.source === 'routine' && (
+              <span className="row-link row-repeat" title="Repeats">
+                <Glyph name="repeat" />
               </span>
             )}
             {durText(block.duration_min)}

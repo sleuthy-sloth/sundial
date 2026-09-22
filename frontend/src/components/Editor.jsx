@@ -2,6 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ICONS } from '../icons'
 import { durText, hhmm } from '../time'
+import {
+  REPEATS,
+  WEEKDAYS,
+  WEEKDAY_LABELS,
+  differsFromRoutine,
+  everyWeeks,
+  isOccurrence,
+  isoWeekday,
+  toggleWeekday,
+  weekdaysFor,
+} from '../routines'
+import Glyph from './Glyph'
 
 const COLORS = ['slate', 'sky', 'violet', 'amber', 'emerald', 'rose', 'teal', 'indigo']
 
@@ -16,28 +28,56 @@ const HOLD = 450
  * sends it, and closing the editor sends it. Nothing that arrives from the server
  * overwrites a draft that has not gone out yet — and a send that fails keeps the draft
  * on screen, says so, and can be tried again.
+ *
+ * One panel serves three subjects, and they are told apart by `subject.kind` and by whether the
+ * block is an occurrence rather than by three components that would drift apart within a month:
+ *
+ *   a block       one thing you planned, with a Repeat control that turns it into a rule
+ *   a day of a rule  the same fields, going to that one day, with the option to take the day out
+ *   the rule      the fields plus when it starts, when it ends and whether it is on
+ *
+ * The choice between the second and the third is the panel's own switch, not a second panel:
+ * "edit this occurrence" and "edit the routine" are two readings of one thing, and pushing one
+ * of them behind a modal is how a person edits the wrong one.
  */
-export default function Editor({ block, day, onSave, onRemove, onClose }) {
+export default function Editor({
+  subject, day, onSave, onRepeat, onSkip, onReset, onRemove, onHalf, onClose,
+}) {
+  const block = subject.block
+  const routine = subject.routine
+  const onRoutine = subject.kind === 'routine'
+  const occurrence = block != null && isOccurrence(block)
+  const shown = onRoutine ? routine : block
+
   const [draft, setDraft] = useState({
-    title: block.title,
-    notes: block.notes,
-    duration_min: block.duration_min,
+    title: shown.title,
+    notes: shown.notes,
+    duration_min: shown.duration_min,
   })
   const [status, setStatus] = useState('idle') // idle | saving | saved | failed
   const [retry, setRetry] = useState(null) // the changes that did not get through
 
+  // The repeat control's own state. On the rule half it starts from the rule and every change
+  // is a write; on a block it starts at "Never" and choosing something is what turns the block
+  // into a rule. `weeks` and `days` are held here either way so that picking a kind that needs
+  // more than one answer does not throw away the answer already given.
+  const [repeat, setRepeat] = useState(() => (onRoutine ? routine.recurrence_kind : 'never'))
+  const [days, setDays] = useState(() => (onRoutine ? routine.weekdays ?? [] : []))
+  const [weeks, setWeeks] = useState(() => (onRoutine ? routine.interval_weeks ?? 1 : 1))
+
   // A prop can change under us; the newest one is what a save should call.
-  const newest = useRef({ onSave, block })
-  newest.current = { onSave, block }
+  const newest = useRef({ onSave, shown })
+  newest.current = { onSave, shown }
 
   const waiting = useRef(null) // typed, not sent yet
   const timer = useRef(null)
   const panel = useRef(null)
 
   const deliver = useCallback(async (changes) => {
+    if (!Object.keys(changes).length) return
     setStatus('saving')
     try {
-      await newest.current.onSave(newest.current.block.id, changes)
+      await newest.current.onSave(changes)
       setRetry(null)
       setStatus('saved')
     } catch {
@@ -98,7 +138,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
 
     if ('title' in held && !String(held.title).trim()) {
       // Never send a blank title: put the saved one back and send the rest.
-      setDraft((current) => ({ ...current, title: newest.current.block.title }))
+      setDraft((current) => ({ ...current, title: newest.current.shown.title }))
       delete held.title
       if (!Object.keys(held).length) return
     }
@@ -125,11 +165,62 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [flush, onClose])
 
+  /** Choosing a repeat for a block: the rule is created from the block's own fields, so there
+   *  is nothing else to ask for. Custom weekdays is the one that needs a second answer, and it
+   *  waits for the button rather than sending a rule with no days in it. */
+  const chooseRepeat = (kind) => {
+    setRepeat(kind)
+    const picked = weekdaysFor(kind, block?.day ?? day)
+    if (picked.length) setDays(picked)
+    if (kind === 'never' || kind === 'selected_weekdays') return
+    onRepeat({ recurrence_kind: kind, weekdays: picked.length ? picked : days, interval_weeks: weeks })
+  }
+
+  /** The same control on the rule half: every change is a write to the rule. */
+  const changeRepeat = (kind) => {
+    setRepeat(kind)
+    // Moving to custom days seeds from the day the rule already lands on, so the set you are
+    // about to edit starts from a day you recognise — and so the write cannot be one the API
+    // refuses for having no days in it.
+    const picked = kind === 'selected_weekdays' && !days.length
+      ? [isoWeekday(routine.start_date)]
+      : weekdaysFor(kind, routine.start_date)
+    if (picked.length) setDays(picked)
+    act({
+      recurrence_kind: kind,
+      weekdays: picked.length ? picked : days,
+      interval_weeks: weeks,
+    })
+  }
+
+  const weekdayRow = (onPick) => (
+    <div className="weekdays" role="group" aria-label="Days of the week">
+      {WEEKDAYS.map((n, i) => (
+        <button
+          type="button"
+          key={n}
+          className={`weekday${days.includes(n) ? ' on' : ''}`}
+          // The letter is what you see; the name is what a screen reader says, because "T"
+          // twice in one row is not a day of the week.
+          aria-label={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+            'Sunday'][i]}
+          aria-pressed={days.includes(n)}
+          // The last day cannot be taken out: the API refuses a custom repeat with no days,
+          // and a button that fails on press is worse than one that is not offered.
+          disabled={days.length === 1 && days.includes(n)}
+          onClick={() => onPick(n)}
+        >
+          {WEEKDAY_LABELS[i]}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <aside
       className="editor"
       role="dialog"
-      aria-label="Block details"
+      aria-label={onRoutine ? 'Routine details' : 'Block details'}
       tabIndex={-1}
       ref={panel}
     >
@@ -141,7 +232,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
           value={draft.title}
           onChange={(e) => type({ title: e.target.value })}
           onBlur={flush}
-          aria-label="Title"
+          aria-label={onRoutine ? 'Routine title' : 'Title'}
         />
         <button type="button" className="close" onClick={onClose} aria-label="Close editor">×</button>
       </div>
@@ -159,11 +250,53 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
         )}
       </div>
 
+      {/* Which thing is being changed. Said plainly, because getting this wrong is the whole
+          risk of having a routine: the same panel edits one day or every one. */}
+      {routine && (
+        <div className="routine-head" data-on={onRoutine ? 'routine' : 'day'}>
+          <p className="routine-what">
+            <Glyph name="repeat" />
+            {onRoutine ? (
+              <>
+                The rule for <b>{routine.title}</b> — {routine.summary}. Every day it has not
+                been told otherwise changes with it.
+              </>
+            ) : (
+              <>
+                One day of <b>{routine.title}</b> — {routine.summary}
+              </>
+            )}
+          </p>
+          {block && (
+            <div className="halves" role="group" aria-label="What this edit applies to">
+              <button
+                type="button"
+                data-half="day"
+                className={onRoutine ? '' : 'on'}
+                aria-pressed={!onRoutine}
+                onClick={() => onHalf('day')}
+              >
+                This day
+              </button>
+              <button
+                type="button"
+                data-half="routine"
+                className={onRoutine ? 'on' : ''}
+                aria-pressed={onRoutine}
+                onClick={() => onHalf('routine')}
+              >
+                The routine
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <label className="field">
         <span>Icon</span>
         <div className="icon-grid">
           <button type="button"
-            className={`icon-pick${block.icon ? '' : ' on'}`}
+            className={`icon-pick${shown.icon ? '' : ' on'}`}
             onClick={() => act({ icon: '' })}
             aria-label="No icon"
           >
@@ -172,7 +305,7 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
           {ICONS.map((glyph) => (
             <button type="button"
               key={glyph}
-              className={`icon-pick${block.icon === glyph ? ' on' : ''}`}
+              className={`icon-pick${shown.icon === glyph ? ' on' : ''}`}
               onClick={() => act({ icon: glyph })}
               aria-label={`Icon ${glyph}`}
             >
@@ -182,41 +315,47 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
         </div>
       </label>
 
-      <label className="field">
-        <span>Day</span>
-        <div className="dur-row">
-          <input
-            type="date"
-            value={block.day ?? day}
-            onChange={(e) => {
-              const next = e.target.value
-              if (!next) return
-              // The day and the start time travel together, so an inbox item given a
-              // date lands at 9am on it rather than being refused by the API.
-              act({ day: next, start_min: block.start_min ?? 9 * 60 })
-            }}
-            aria-label="Day"
-          />
-        </div>
-      </label>
+      {/* A day of a routine is not moved to another day: the rule decides which days it has,
+          and moving one would be asking for a different rule. The Day field is a block's. */}
+      {!routine && !occurrence && (
+        <label className="field">
+          <span>Day</span>
+          <div className="dur-row">
+            <input
+              type="date"
+              value={block.day ?? day}
+              onChange={(e) => {
+                const next = e.target.value
+                if (!next) return
+                // The day and the start time travel together, so an inbox item given a
+                // date lands at 9am on it rather than being refused by the API.
+                act({ day: next, start_min: block.start_min ?? 9 * 60 })
+              }}
+              aria-label="Day"
+            />
+          </div>
+        </label>
+      )}
 
       <label className="field">
         <span>Starts</span>
         <div className="dur-row">
           <input
             type="time"
-            value={block.start_min == null ? '' : hhmm(block.start_min)}
+            value={shown.start_min == null ? '' : hhmm(shown.start_min)}
             onChange={(e) => {
               const [h, m] = e.target.value.split(':').map(Number)
               if (Number.isFinite(h)) {
                 // The day you are looking at, not today: scheduling a task while
                 // reading Thursday's plan should put it on Thursday.
-                act({ day: block.day ?? day, start_min: h * 60 + m })
+                act(routine || occurrence
+                  ? { start_min: h * 60 + m }
+                  : { day: block.day ?? day, start_min: h * 60 + m })
               }
             }}
             aria-label="Start time"
           />
-          {block.start_min != null && (
+          {!routine && !occurrence && block.start_min != null && (
             <button type="button" onClick={() => act({ unschedule: true })}>
               Back to anytime
             </button>
@@ -247,13 +386,137 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
           {COLORS.map((c) => (
             <button type="button"
               key={c}
-              className={`swatch c-${c}${block.color === c ? ' on' : ''}`}
+              className={`swatch c-${c}${shown.color === c ? ' on' : ''}`}
               onClick={() => act({ color: c })}
               aria-label={c}
             />
           ))}
         </div>
       </label>
+
+      {/* Repeat. On a block it is the control that makes one; on the rule it is the control
+          that says which days it lands on. Never both, because a block that belongs to a rule
+          is not a block any more. */}
+      {!routine && !occurrence && (
+        <label className="field repeat-field">
+          <span>Repeat</span>
+          {block.day === null || block.start_min == null ? (
+            // A rule is a day of the week and an hour. An inbox item has neither yet, so the
+            // control is absent and says why rather than being offered and then refused.
+            <span className="field-note">
+              A routine needs a day and a time. Give this one a day first.
+            </span>
+          ) : (
+            <>
+              <div className="dur-row">
+                <select
+                  className="repeat-kind"
+                  value={repeat}
+                  onChange={(e) => chooseRepeat(e.target.value)}
+                  aria-label="Repeat"
+                >
+                  <option value="never">Never</option>
+                  {REPEATS.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+              {repeat === 'selected_weekdays' && (
+                <>
+                  {weekdayRow((n) => setDays(toggleWeekday(days, n)))}
+                  <button
+                    type="button"
+                    className="repeat-go"
+                    disabled={!days.length}
+                    onClick={() => onRepeat({
+                      recurrence_kind: 'selected_weekdays', weekdays: days, interval_weeks: 1,
+                    })}
+                  >
+                    Repeat on {days.length === 1 ? 'this day' : 'these days'}
+                  </button>
+                </>
+              )}
+              <span className="field-note">
+                Turning this on makes today’s block a routine. It stops being a one-off, and
+                the panel switches to the rule so you can say when it ends.
+              </span>
+            </>
+          )}
+        </label>
+      )}
+
+      {onRoutine && (
+        <label className="field repeat-field">
+          <span>Repeats</span>
+          <div className="dur-row">
+            <select
+              className="repeat-kind"
+              value={repeat}
+              onChange={(e) => changeRepeat(e.target.value)}
+              aria-label="Repeat"
+            >
+              {REPEATS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.value === 'weekly_interval' ? everyWeeks(weeks) : r.label}
+                </option>
+              ))}
+            </select>
+            {repeat === 'weekly_interval' && (
+              <input
+                className="weeks-input"
+                type="number"
+                min="1"
+                max="52"
+                value={weeks}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(52, Number(e.target.value) || 1))
+                  setWeeks(n)
+                  act({ interval_weeks: n })
+                }}
+                aria-label="Every how many weeks"
+              />
+            )}
+          </div>
+          {repeat === 'selected_weekdays'
+            && weekdayRow((n) => {
+              const next = toggleWeekday(days, n)
+              setDays(next)
+              act({ weekdays: next })
+            })}
+        </label>
+      )}
+
+      {onRoutine && (
+        <>
+          <label className="field">
+            <span>From</span>
+            <div className="dur-row">
+              <input
+                type="date"
+                value={routine.start_date}
+                onChange={(e) => e.target.value && act({ start_date: e.target.value })}
+                aria-label="First day"
+              />
+            </div>
+          </label>
+          <label className="field">
+            <span>Until</span>
+            <div className="dur-row">
+              <input
+                type="date"
+                value={routine.end_date ?? ''}
+                onChange={(e) => act({ end_date: e.target.value || null })}
+                aria-label="Last day"
+              />
+              {routine.end_date && (
+                <button type="button" onClick={() => act({ end_date: null })}>
+                  No end
+                </button>
+              )}
+            </div>
+          </label>
+        </>
+      )}
 
       <label className="field">
         <span>Notes</span>
@@ -266,15 +529,55 @@ export default function Editor({ block, day, onSave, onRemove, onClose }) {
       </label>
 
       <div className="editor-actions">
-        {block.day === null ? (
-          <span className="muted">In the inbox — drag it onto the timeline.</span>
+        {onRoutine ? (
+          <>
+            <button
+              type="button"
+              className={routine.enabled ? '' : 'primary'}
+              onClick={() => act({ enabled: !routine.enabled })}
+            >
+              {routine.enabled ? 'Turn off' : 'Turn on'}
+            </button>
+            <button type="button" className="danger" onClick={onRemove}>
+              Delete the routine
+            </button>
+          </>
         ) : (
-          <button type="button" onClick={() => act({ unschedule: true })}>Back to inbox</button>
+          <>
+            {occurrence ? (
+              <>
+                <button type="button" className="danger" onClick={onSkip}>
+                  Skip this day
+                </button>
+                {differsFromRoutine(block, routine) && (
+                  <button type="button" onClick={onReset}>
+                    Back to the routine
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {block.day === null ? (
+                  <span className="muted">In the inbox — drag it onto the timeline.</span>
+                ) : (
+                  <button type="button" onClick={() => act({ unschedule: true })}>
+                    Back to inbox
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              type="button"
+              className={block.done ? 'primary' : ''}
+              onClick={() => act({ done: !block.done })}
+            >
+              {block.done ? 'Done' : 'Mark done'}
+            </button>
+            {!occurrence && (
+              <button type="button" className="danger" onClick={onRemove}>Delete</button>
+            )}
+          </>
         )}
-        <button type="button" className={block.done ? 'primary' : ''} onClick={() => act({ done: !block.done })}>
-          {block.done ? 'Done' : 'Mark done'}
-        </button>
-        <button type="button" className="danger" onClick={onRemove}>Delete</button>
       </div>
     </aside>
   )

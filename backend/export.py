@@ -40,11 +40,35 @@ from typing import Any
 # anything else, and it is spelled out rather than implied by the filename because a
 # filename is the first thing a person renames.
 FORMAT = "sundial-export"
-VERSION = 1
+
+# 1: calendars, blocks, events and the two logs. 2: routines and their overrides.
+#
+# The number is not decoration. What a file promises is what existed when it was written, so a
+# version 1 file that has no routines table is a complete file — there were no routines in the
+# app that wrote it — while a version 2 file without one has been edited or truncated. Reading
+# the promise off the file's own version is what lets an export from before this release import
+# without being refused for a table that did not exist yet.
+VERSION = 2
 
 # Every table carried, in an order that satisfies the foreign keys when it is put back:
-# `events` references `calendars`, so calendars go in first. Deletion walks it backwards.
-TABLES: tuple[str, ...] = ("calendars", "blocks", "events", "sync_log", "push_sent")
+# `events` references `calendars` and `routine_overrides` references `routines`, so the parents
+# go in first. Deletion walks it backwards.
+TABLES: tuple[str, ...] = (
+    "calendars",
+    "routines",
+    "routine_overrides",
+    "blocks",
+    "events",
+    "sync_log",
+    "push_sent",
+)
+
+# What each format version promised. The current version is the whole list; older versions are
+# here so their files can still be read and so their absences can be told apart from a loss.
+TABLES_BY_VERSION: dict[int, tuple[str, ...]] = {
+    1: ("calendars", "blocks", "events", "sync_log", "push_sent"),
+    2: TABLES,
+}
 
 # Present in the database, absent from the file, on purpose. Each entry is the sentence
 # the refusal or the documentation will use, so the reason travels with the decision.
@@ -165,7 +189,8 @@ def check(payload: Any, schema_version: int) -> dict[str, list[dict[str, Any]]]:
     if not isinstance(tables, dict):
         raise ExportError("that file has no \"tables\" object")
 
-    missing = [name for name in TABLES if name not in tables]
+    promised = TABLES_BY_VERSION.get(version, ())
+    missing = [name for name in promised if name not in tables]
     if missing:
         raise ExportError(
             f"that file is missing the {', '.join(missing)} table(s) — a complete export "
@@ -173,7 +198,7 @@ def check(payload: Any, schema_version: int) -> dict[str, list[dict[str, Any]]]:
         )
 
     for name in TABLES:
-        rows = tables[name]
+        rows = tables.get(name, [])
         if not isinstance(rows, list):
             raise ExportError(f'"{name}" should be a list of rows, not {type(rows).__name__}')
         for index, row in enumerate(rows):
@@ -187,7 +212,10 @@ def check(payload: Any, schema_version: int) -> dict[str, list[dict[str, Any]]]:
                         f'"{name}" row {index} has a {type(value).__name__} for "{key}"; '
                         "values should be text, numbers, true/false or null"
                     )
-    return {name: tables[name] for name in TABLES}
+    # Every table the format carries, with an empty list for the ones an older file did not
+    # have: a replace has to empty those too, or a routine would survive an import that was
+    # written before routines existed.
+    return {name: tables.get(name, []) for name in TABLES}
 
 
 def unknown_columns(payload: Any, conn: sqlite3.Connection) -> dict[str, list[str]]:

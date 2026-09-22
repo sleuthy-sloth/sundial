@@ -8,6 +8,8 @@ const PATHS = {
   check: <path d="M4 12.5l5 5L20 6.5" />,
   calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2.5" /><path d="M3.5 10h17M8 3.5v3M16 3.5v3" /></>,
   link: <><path d="M10 14a4 4 0 0 1 0-5.7l1.4-1.4a4 4 0 0 1 5.7 5.7l-.8.8" /><path d="M14 10a4 4 0 0 1 0 5.7l-1.4 1.4A4 4 0 0 1 6.9 11.4l.8-.8" /></>,
+  // Two arrows going round: the mark for "this comes back", on the rows of a routine's day.
+  repeat: <><path d="M4.5 9.5A7 7 0 0 1 11 4h5.5" /><path d="M14 1.5 16.5 4 14 6.5" /><path d="M19.5 14.5A7 7 0 0 1 13 20H7.5" /><path d="M10 22.5 7.5 20 10 17.5" /></>,
 }
 
 export default function Glyph({ name }) {

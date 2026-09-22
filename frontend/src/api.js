@@ -70,6 +70,24 @@ export const api = {
   patch: (id, changes) =>
     req(`/api/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   remove: (id) => req(`/api/blocks/${id}`, { method: 'DELETE' }),
+  // Routines. A routine is a rule and its occurrences are not rows, so the three occurrence
+  // routes name the routine and the day rather than an id nobody has: there is nothing to
+  // address until a day has been changed, and creating the row is the server's job.
+  routines: (signal) => req('/api/routines', { signal }),
+  createRoutine: (routine) =>
+    req('/api/routines', { method: 'POST', body: JSON.stringify(routine) }),
+  patchRoutine: (id, changes) =>
+    req(`/api/routines/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  removeRoutine: (id) => req(`/api/routines/${id}`, { method: 'DELETE' }),
+  skipOccurrence: (id, day) =>
+    req(`/api/routines/${id}/occurrences/${day}/skip`, { method: 'POST' }),
+  patchOccurrence: (id, day, changes) =>
+    req(`/api/routines/${id}/occurrences/${day}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }),
+  resetOccurrence: (id, day) =>
+    req(`/api/routines/${id}/occurrences/${day}`, { method: 'DELETE' }),
   // Leaving. The export is the one read that arrives as a download, so it is fetched whole
   // rather than through `req`: the reply's own Content-Disposition names the file.
   exportAll: async () => {

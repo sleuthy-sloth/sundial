@@ -24,6 +24,8 @@ import app
 import export
 import store
 
+from services import routines
+
 ROOT = pathlib.Path(__file__).resolve().parent
 
 
@@ -94,9 +96,10 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     before = everything()
 
     with store.db() as conn:
-        document = json.loads(json.dumps(export.dump(conn, 4)))  # through real JSON
+        document = json.loads(json.dumps(export.dump(conn, 5)))  # through real JSON
         assert export.counts(document) == {
-            "calendars": 1, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
+            "calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
+            "events": 1, "sync_log": 1, "push_sent": 0,
         }
 
     # Empty it, the way a fresh install on another machine would be. Importing the same
@@ -104,14 +107,80 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     # deletes ever ran.
     emptied = dict(document, tables={name: [] for name in export.TABLES})
     with store.db() as conn:
-        export.replace(conn, export.check(emptied, 4))
+        export.replace(conn, export.check(emptied, 5))
     assert everything() == {name: [] for name in export.TABLES}, "the import was not a replace"
 
     # And take them back to where they started.
     with store.db() as conn:
-        written = export.replace(conn, export.check(document, 4))
+        written = export.replace(conn, export.check(document, 5))
     assert everything() == before, "the round trip lost or changed something"
-    assert written == {"calendars": 1, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0}
+    assert written == {"calendars": 1, "routines": 0, "routine_overrides": 0, "blocks": 2,
+                       "events": 1, "sync_log": 1, "push_sent": 0}
+
+
+def test_a_routine_and_the_days_it_was_told_otherwise_survive_a_round_trip(database):
+    """A rule and its exceptions, out through real JSON and back.
+
+    Both halves have to survive together. A routine without its overrides would quietly put back
+    a day you had taken out, and an override without its routine is a row about nothing — so this
+    checks the rows *and* the days they answer for, because a file that restores the rows and
+    changes what they mean is not a restore.
+
+    A routine is the one thing in the database that is mostly not rows: the days it covers are
+    computed from the rule, and the only rows it owns are the days you disagreed with. So the
+    question after the round trip is not "are the rows here" but "is Wednesday still skipped".
+    """
+    seed()
+    with store.db() as conn:
+        conn.execute(
+            """INSERT INTO routines (id, title, start_min, duration_min, color, icon, notes,
+                                     recurrence_kind, weekdays, interval_weeks, start_date,
+                                     end_date, created_at, updated_at, enabled)
+               VALUES ('r1', 'Gym', 390, 60, 'emerald', '', '', 'selected_weekdays', '1,3,5',
+                       1, '2026-09-21', NULL, '2026-09-21T06:00:00+00:00',
+                       '2026-09-21T06:00:00+00:00', 1)"""
+        )
+        # One day taken out entirely, and one that only moved: the two shapes an override takes,
+        # and the two that have to come back differently.
+        conn.execute(
+            """INSERT INTO routine_overrides (id, routine_id, day, state, done, updated_at)
+               VALUES ('o1', 'r1', '2026-09-23', 'skipped', 0, '2026-09-22T20:00:00+00:00')"""
+        )
+        conn.execute(
+            """INSERT INTO routine_overrides (id, routine_id, day, state, start_min, done,
+                                             updated_at)
+               VALUES ('o2', 'r1', '2026-09-25', 'modified', 420, 0,
+                       '2026-09-25T05:00:00+00:00')"""
+        )
+
+    def the_days_answers():
+        """What the rule says about its three days, as a person would read them."""
+        with store.db() as conn:
+            return {
+                "monday": [o["title"] for o in routines.occurrences_on(conn, "2026-09-21")],
+                "wednesday": routines.occurrences_on(conn, "2026-09-23"),
+                "friday": [o["start_min"] for o in routines.occurrences_on(conn, "2026-09-25")],
+            }
+
+    before = everything()
+    assert the_days_answers() == {"monday": ["Gym"], "wednesday": [], "friday": [420]}
+
+    with store.db() as conn:
+        document = json.loads(json.dumps(export.dump(conn, 5)))  # through real JSON
+    assert export.counts(document)["routines"] == 1
+    assert export.counts(document)["routine_overrides"] == 2
+
+    emptied = dict(document, tables={name: [] for name in export.TABLES})
+    with store.db() as conn:
+        export.replace(conn, export.check(emptied, 5))
+
+    with store.db() as conn:
+        export.replace(conn, export.check(document, 5))
+
+    assert everything() == before, "the round trip lost or changed a routine or one of its days"
+    assert the_days_answers() == {"monday": ["Gym"], "wednesday": [], "friday": [420]}, (
+        "the rows came back but the days they answer for did not"
+    )
 
 
 def test_a_block_with_no_day_survives_being_carried(database):
@@ -266,7 +335,7 @@ def test_export_downloads_a_named_file_of_the_right_shape(client):
     )
     document = answer.json()
     assert document["format"] == export.FORMAT
-    assert document["schema_version"] == 4
+    assert document["schema_version"] == 5
     assert len(document["tables"]["blocks"]) == 2
     assert "push_subscriptions" not in document["tables"]
 
@@ -320,8 +389,8 @@ def test_the_round_trip_works_over_http_and_keeps_a_way_back(client):
                                               "document": document})
     assert answer.status_code == 200
     answer = answer.json()
-    assert answer["replaced"] == {"calendars": 1, "blocks": 2, "events": 1,
-                                  "sync_log": 1, "push_sent": 0}
+    assert answer["replaced"] == {"calendars": 1, "routines": 0, "routine_overrides": 0,
+                                  "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0}
     assert everything() == before
 
     # The database it replaced is copied first and named in the answer, so a mistaken

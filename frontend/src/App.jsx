@@ -48,16 +48,16 @@ export default function App() {
 
   const nowMin = usePlannerClock()
   const {
-    day, setDay, today, blocks, inbox, selectedId, setSelectedId, selected,
-    draft, setDraft, error, setError, leaving, settling,
-    write, capture, addToSection, scheduleAt, toggleDone, remove,
+    day, setDay, today, blocks, inbox, routines, selectedId, subject,
+    open, openRoutine, close, draft, setDraft, error, setError, leaving, settling,
+    write, capture, addToSection, scheduleAt, toggleDone, editor,
   } = usePlanner({ contentRef })
   const {
     calendar, calendarDay, syncing, note, connecting,
     runSync, connectCalendar, toggleCalendar, colourOf, nameOf, inDay,
   } = useCalendar({ tab, day, blocks })
   const { drag, ghost, beginDrag } = useBlockDrag({
-    day, write, contentRef, setSelectedId, setError,
+    day, write, contentRef, setSelectedId: open, setError,
   })
 
   useEffect(() => { applyTheme(theme) }, [theme])
@@ -81,7 +81,7 @@ export default function App() {
   const planned = busyMinutes(blocks)
   const layout = ['layout']
   if (tab === 'day') layout.push('with-rail')
-  if (selected) layout.push('with-editor')
+  if (subject) layout.push('with-editor')
 
   return (
     <div className={layout.join(' ')}>
@@ -97,7 +97,7 @@ export default function App() {
             onDraft={setDraft}
             onCapture={capture}
             onPointerDown={beginDrag}
-            onSelect={setSelectedId}
+            onSelect={open}
           />
         </aside>
       )}
@@ -127,7 +127,7 @@ export default function App() {
               captureRef={captureRef}
               onDraft={setDraft}
               onCapture={capture}
-              onOpen={setSelectedId}
+              onOpen={open}
               onToggle={toggleDone}
               onAddAt={addToSection}
               leaving={leaving}
@@ -155,7 +155,7 @@ export default function App() {
               scrollerRef={scrollerRef}
               onDoubleClick={scheduleAt}
               onPointerDown={beginDrag}
-              onSelect={setSelectedId}
+              onSelect={open}
             />
           </div>
         )}
@@ -173,6 +173,8 @@ export default function App() {
               connecting={connecting}
               theme={theme}
               onTheme={toggleTheme}
+              routines={routines}
+              onOpenRoutine={openRoutine}
             />
           </div>
         )}
@@ -180,14 +182,16 @@ export default function App() {
 
       <TabBar tab={tab} onTab={setTab} />
 
-      {selected && (
+      {subject && (
         <Editor
-          key={selected.id}
-          block={selected}
+          /* Keyed on the subject, not on the id: switching between a day and its rule is a
+             different thing to edit, and the panel should arrive with that thing's values in
+             its fields rather than the other's half-typed draft. */
+          key={`${subject.kind}:${(subject.block ?? subject.routine).id}`}
+          subject={subject}
           day={day}
-          onSave={write}
-          onRemove={remove}
-          onClose={() => setSelectedId(null)}
+          {...editor}
+          onClose={close}
         />
       )}
 

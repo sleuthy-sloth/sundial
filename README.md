@@ -36,6 +36,14 @@ the length, double-click empty space for a short block. Above 780px the rail ret
 which is where dragging a task out of the inbox and onto an hour still happens; on a phone those
 same tasks are in Today's Anytime section, one tap from the editor.
 
+Blocks can repeat. Turning one into a routine makes it a **rule** rather than a row for every day
+it lands on: "Mon · Wed · Fri at 06:30" is said once, and only the days you change are written
+down. Renaming the routine renames every day you have not touched, and taking one Wednesday out
+leaves the rest of them alone. A routine's block wears a dotted edge on the clock and a loop in a
+list, and the panel says which of the two you are editing — that day, or the rule — before you
+change it. Every rule you have is listed in **You**, because a rule with no day on screen this
+week has nothing else to be found by.
+
 **You** — the app's own settings: what is connected and how fresh it is, the theme, and which
 version this copy is. Nothing here is about the day.
 
@@ -188,10 +196,11 @@ committing.
 ```
 backend/main.py             assembling the app: the routers, the lifespan, the SPA mount
 backend/app.py              the name `uvicorn app:app` is given; re-exports main's app
-backend/routers/            the API, one module per area — blocks, week, calendar, google,
-                            data, push
+backend/routers/            the API, one module per area — blocks, routines, week, calendar,
+                            google, data, push
 backend/schemas/            what a caller may send, one module per area
-backend/services/           the rules the routes ask about: the block rules, the day rules
+backend/services/           the rules the routes ask about: the block rules, the routine rules,
+                            the day rules
 backend/bootstrap.py        the database's shape: the fresh-install table, the migrations
 backend/clock.py            what the server thinks today is, and what it stamps a write with
 backend/store.py            the database handle, so two modules can open one
@@ -207,7 +216,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           326 tests
+backend/test_*.py           376 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -215,11 +224,12 @@ scripts/make_icons.py       the app icon and favicon: measured geometry, two lay
 frontend/src/App.jsx        the shell: the view you are in, and where each part goes
 frontend/src/hooks/          the day (usePlanner), the calendar, the pointer, the clock
 frontend/src/art.js         when the all-clear artwork is allowed to appear
+frontend/src/routines.js    the words for a repeat, and which days one starts from (pure)
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
-                            Profile, Glyph, LedgerArt, CalendarPanel, Notifications, Switch,
-                            YourData
+                            Routines, Profile, Glyph, LedgerArt, CalendarPanel, Notifications,
+                            Switch, YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
-frontend/e2e/ui_check.mjs   226 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   250 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -236,6 +246,13 @@ The plan itself is one table, `blocks`. A block is in the inbox while its `day` 
 `start_min` are NULL, and scheduled once they are set. Those two travel together — the
 API refuses one without the other, because a block sitting "nowhere at 14:00" is a bug
 waiting to happen.
+
+Repeats are two more tables beside it. `routines` holds the rule — its days, its hour, when it
+starts and when it stops — and `routine_overrides` holds the days you told something different.
+Nothing is generated ahead of time: an occurrence is a question asked of a rule and a date, so a
+routine landing on every weekday for the next ten years is a single row, and asking for a year of
+it writes nothing at all. A day you never touched has no row anywhere, which is why editing the
+rule still reaches it.
 
 Imported calendar events live in their own table rather than in `blocks`, because a
 calendar holds things that are not plans: an all-day event is a date rather than an
@@ -349,9 +366,9 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 326 tests
-cd frontend && npm test                                # 91 unit tests, node --test
-cd frontend && npm run check:ui                        # 226 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 376 tests
+cd frontend && npm test                                # 106 unit tests, node --test
+cd frontend && npm run check:ui                        # 250 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 

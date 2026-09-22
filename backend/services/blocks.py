@@ -20,6 +20,10 @@ PALETTE = ["slate", "sky", "violet", "amber", "emerald", "rose", "teal", "indigo
 def row_to_dict(row) -> dict:
     d = dict(row)
     d["done"] = bool(d["done"])
+    # Every row that reaches the API says where it came from. It costs one key and it saves the
+    # frontend from working out by shape whether a thing can be edited — `routine` rows are
+    # occurrences of a rule, and a write against one of those goes to the rule.
+    d["source"] = "block"
     return d
 
 
