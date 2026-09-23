@@ -33,7 +33,7 @@ Migration 8 adds the columns and the table, and the export format is version 5 f
 one, and a version 5 file whose line names a task it does not carry is refused with a sentence before
 anything is written.
 
-Counts: 480 backend tests (22 new), 155 unit (12 new), 349 browser checks (16 new). All eight visual
+Counts: 481 backend tests (23 new), 155 unit (12 new), 349 browser checks (16 new). All eight visual
 baselines are unchanged, which is the check that says a task with no steps looks exactly as it did.
 
 **A week reads as capacity, not as a calendar grid.** **Week** is the fourth destination along the

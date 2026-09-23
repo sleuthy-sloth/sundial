@@ -280,6 +280,29 @@ def test_an_unfinished_task_rolls_over_with_its_checklist_as_one_item(client):
     assert count("blocks") == 3, "moving the task left something behind"
 
 
+def test_a_line_is_never_offered_on_its_own_even_given_a_day_by_hand(client):
+    """D4, pinned at the predicate rather than at the shape: the row the API cannot make.
+
+    A line has no day of its own, so the day's own test cannot see it whatever else is written —
+    which is the reason this clause has to be asserted rather than assumed. This writes a line
+    WITH a day and a time, straight into the table, where no request can put one, and asks the
+    rollover anyway: a line with a day is still a line, and it still travels inside its task
+    rather than as a leftover row of its own.
+    """
+    parent = block(client, title="Pack for the trip", day=YESTERDAY, start_min=600)
+    line(client, parent, "Passport")
+
+    with store.db() as conn:
+        conn.execute(
+            "UPDATE blocks SET day = ?, start_min = 540 WHERE parent_id = ?",
+            (YESTERDAY, parent["id"]),
+        )
+
+    offered = day_view(client, TODAY)["leftover"]
+    assert [b["title"] for b in offered] == ["Pack for the trip"], "a line was offered on its own"
+    assert [s["title"] for s in offered[0]["subtasks"]] == ["Passport"]
+
+
 def test_the_palette_and_the_health_count_are_about_tasks_not_steps(client):
     """A line is part of a task rather than a thing on a day, in the two places that count them."""
     first = block(client, title="One")
@@ -476,6 +499,10 @@ def test_the_export_carries_the_lines_the_rule_holds(client):
     rule = routine_line(client, routine(client), "Bottle")
     tick(client, rule, MON, rule["subtasks"][0]["id"])
     packed = pack(client, TODAY, "Passport", "Charger")
+    # One box of the task's own list ticked before the file is written, because a tick that survives
+    # the round trip is the half of Rule 12 that a table count cannot show.
+    on_day = found(client, TODAY, packed["id"])["subtasks"]
+    client.patch(f"/api/blocks/{on_day[1]['id']}", json={"done": True})
 
     document = client.get("/api/export").json()
     assert document["version"] == 5, "a file that can hold a routine's lines is a new version"
@@ -504,9 +531,11 @@ def test_the_export_carries_the_lines_the_rule_holds(client):
     )
 
     day = day_view(client)
-    assert [s["title"] for s in found(client, TODAY, packed["id"])["subtasks"]] == [
-        "Passport", "Charger"
-    ]
+    restored_lines = found(client, TODAY, packed["id"])["subtasks"]
+    assert [s["title"] for s in restored_lines] == ["Passport", "Charger"]
+    assert [s["done"] for s in restored_lines] == [False, True], (
+        "the tick did not survive the file"
+    )
     assert day["inbox"] == []
 
 
