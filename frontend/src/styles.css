@@ -911,6 +911,71 @@ button { cursor: pointer; }
   color: var(--muted);
 }
 
+/* The checklist in the editor. Same names as the row's, with the two things a panel can offer
+   that a row cannot: a name you can change where it is written, and a way to take a step out.
+   The box is `.step-notch`, the same control the row draws — a step is a step wherever it is
+   read. `text-transform` is reset because `.field` sets it: a label may shout, a step must not.
+   The name is not uppercased and not letter-spaced; it is the same words the row shows. */
+.field-steps { gap: 5px; }
+
+.step-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step-edit { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.step-edit .step-name {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.step-edit .step-remove {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.step-edit .step-remove:hover { color: var(--text); background: var(--surface-2); }
+.step-edit.done .step-name { color: var(--muted); text-decoration: line-through; }
+
+.step-add { display: flex; align-items: center; gap: 8px; }
+.step-add .step-new {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.step-add button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.step-add button:hover { border-color: var(--muted); }
+
 /* The list of rules, in You. */
 .routine-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
 .routine-open {
@@ -1049,6 +1114,46 @@ button { cursor: pointer; }
 .item-move button:hover:not(:disabled) { border-color: var(--edge); }
 .item-move button:disabled { opacity: 0.45; cursor: default; }
 .item-move button.danger:hover { border-color: var(--now); color: var(--now); }
+
+/* A template line's steps, drawn under the line they belong to: the whole item wraps, and this
+   takes the full width beneath its controls. They are names and a way to take one out — a step
+   of a template has no hour, no colour and no completion state, because it happens inside the
+   line it is part of and a template is never done. */
+.item-steps {
+  flex: 0 0 100%;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0 0 4px calc(1rem + 4px);
+  list-style: none;
+}
+
+.item-step { display: flex; align-items: center; gap: 6px; }
+.item-step .step-name { flex: 1; min-width: 8rem; }
+.item-step .step-remove {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.item-step .step-remove:hover { border-color: var(--now); color: var(--now); }
+
+.item-step-add { display: flex; }
+.item-step-add button {
+  min-height: 44px;
+  padding: 8px 12px;
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.item-step-add button:hover { border-color: var(--muted); color: var(--text); }
 
 .template-contents-foot {
   display: flex;
@@ -1390,6 +1495,9 @@ button { cursor: pointer; }
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Wraps so that a task's checklist can sit under its title as a full-width child. With no
+     steps on a row — which is every row that had one before this existed — nothing wraps. */
+  flex-wrap: wrap;
   width: 100%;
   padding: 11px 6px 11px 0;
   border-bottom: 1px solid var(--line-faint);
@@ -1481,6 +1589,89 @@ button { cursor: pointer; }
 }
 .notch[aria-checked='true']::before { background: var(--text); border-color: var(--text); }
 .notch[aria-checked='true']::after { opacity: 1; transform: rotate(-45deg) scale(1); }
+
+/* A task's checklist: the steps are drawn inside the task's own row, under its title, rather
+   than as rows of their own. They are part of the task — that is the whole reason they are not
+   blocks, not rows, and not a second list — so the row wraps (see `.row`) and the list takes
+   the full width beneath it. A task with no steps renders nothing here and looks exactly as it
+   did before any of this existed. */
+.row-steps {
+  /* Lined up with the title rather than with the row: the square, the gap, the gutter, the edge
+     and the gaps between them, named once so the indent follows if the notch or the gutter
+     changes. A checklist that started at the margin would read as its own list. */
+  --row-lead: calc(44px + var(--gutter) + 33px);
+  flex: 0 0 100%;
+  margin: 0;
+  padding: 2px 0 0 var(--row-lead);
+  list-style: none;
+}
+
+/* One line of a task's checklist. Named `.row-step` rather than `.step`, which the header's
+   day arrows already are — two things called `step` in one stylesheet is a collision, and the
+   later rule silently wins. */
+.row-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px; /* the target a thumb needs, which the mark itself is much smaller than */
+}
+
+/* The same square as the task's, one size down and not filled in: a step is a step. Drawn
+   with the task's own ink, because a checklist line has no colour of its own — it sits inside
+   the task's edge and takes what the task takes. */
+.step-notch {
+  width: 32px;
+  height: 32px;
+  margin: 0 -3px 0 -6px;
+  flex: none;
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.step-notch::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 9px;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--muted);
+  border-radius: 3px;
+}
+.step-notch:hover::before { border-color: var(--text); }
+.step-notch::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 13px;
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid var(--bg);
+  border-bottom: 2px solid var(--bg);
+  transform: rotate(-45deg) scale(0.4);
+  opacity: 0;
+}
+.step-notch[aria-checked='true']::before { background: var(--text); border-color: var(--text); }
+.step-notch[aria-checked='true']::after { opacity: 1; transform: rotate(-45deg) scale(1); }
+.step-notch:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.step-title {
+  font-size: 0.9375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A ticked step reads as one: the mark is struck through, exactly as a finished task's title
+   is, and with the same muted ink. Deliberately NOT tied to the task being done — a task says
+   it is done and its steps say which of them were, and neither is derived from the other. So
+   `.row.done` leaves this list alone. */
+.row-step.done .step-title {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
+}
 
 .row.empty {
   border-bottom: 1px dashed var(--line);

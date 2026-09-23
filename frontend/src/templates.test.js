@@ -77,13 +77,27 @@ test('a line can be taken out by position, and added at the end', () => {
 test('the body sent to the API is the lines, and nothing the server owns', () => {
   const body = payloadItems([item('Gym', null, 60, { icon: '', notes: 'shoes' })])
   assert.deepEqual(body, [
-    { title: 'Gym', start_min: null, duration_min: 60, color: 'slate', icon: '', notes: 'shoes' },
+    {
+      title: 'Gym', start_min: null, duration_min: 60, color: 'slate', icon: '', notes: 'shoes',
+      subtasks: [],
+    },
   ])
   assert.deepEqual(Object.keys(body[0]).sort(), [
-    'color', 'duration_min', 'icon', 'notes', 'start_min', 'title',
+    'color', 'duration_min', 'icon', 'notes', 'start_min', 'subtasks', 'title',
   ])
   // An hour that is 0 — midnight — is a time, and must not be mistaken for absent.
   assert.equal(payloadItems([item('Midnight', 0, 30)])[0].start_min, 0)
+})
+
+test('a line keeps its steps when the list is saved', () => {
+  // The whole list is replaced on every save, so a step left out of this body is a step deleted.
+  // A line's steps are names in order; ids and the order are the server's to assign.
+  const packed = item('Pack for the trip', 540, 30, {
+    subtasks: [{ id: 's1', title: 'Passport', sort_order: 0 }, { id: 's2', title: 'Charger' }],
+  })
+  const body = payloadItems([packed])
+  assert.deepEqual(body[0].subtasks, [{ title: 'Passport' }, { title: 'Charger' }])
+  assert.deepEqual(payloadItems([item('Gym', null, 60)])[0].subtasks, [])
 })
 
 test('applying is described by what it did', () => {

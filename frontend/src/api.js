@@ -94,6 +94,24 @@ export const api = {
     }),
   resetOccurrence: (id, day) =>
     req(`/api/routines/${id}/occurrences/${day}`, { method: 'DELETE' }),
+  // A routine's checklist. Two sides, and they are two different requests because they are two
+  // different facts: what the steps ARE belongs to the rule (add, rename, remove — every day of
+  // it changes), and what is TICKED belongs to one day, which is the only way a box stays ticked
+  // when the day is reloaded. Neither route can write the other's half.
+  addRoutineStep: (id, title) =>
+    req(`/api/routines/${id}/subtasks`, { method: 'POST', body: JSON.stringify({ title }) }),
+  renameRoutineStep: (id, stepId, title) =>
+    req(`/api/routines/${id}/subtasks/${stepId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+  removeRoutineStep: (id, stepId) =>
+    req(`/api/routines/${id}/subtasks/${stepId}`, { method: 'DELETE' }),
+  tickRoutineStep: (id, day, stepId, done) =>
+    req(`/api/routines/${id}/occurrences/${day}/subtasks/${stepId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ done }),
+    }),
   // Templates. A day structure rather than a rule: the whole item list is replaced in one PUT
   // because the order is part of what is being saved, and applying is one request rather than
   // one per block — so a half-applied workday cannot happen.

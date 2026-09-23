@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { durText, hhmm } from '../time'
 import {
+  changeStep, namesEveryStep, stepsOf, withStep, withoutStep,
+} from '../subtasks'
+import {
   NEW_ITEM, canApply, describeTemplate, reorder, withItem, withoutItem,
 } from '../templates'
 
@@ -204,8 +207,11 @@ function Contents({ template, onSave }) {
   const change = (index, changes, now = false) =>
     push(items.map((item, i) => (i === index ? { ...item, ...changes } : item)), now)
 
-  // The API refuses the whole list for one nameless line, so none is sent while one is blank.
-  const nameless = items.some((item) => !String(item.title).trim())
+  // The API refuses the whole list for one nameless line, so none is sent while one is blank —
+  // and a step is part of the list it is sent in, so a blank step holds the save the same way.
+  const nameless =
+    items.some((item) => !String(item.title).trim()) ||
+    items.some((item) => !namesEveryStep(stepsOf(item)))
 
   return (
     <div className="template-contents">
@@ -289,6 +295,58 @@ function Contents({ template, onSave }) {
               ×
             </button>
           </span>
+
+          {/* A line's steps, in order, under the line they belong to. They are names and nothing
+              else: a step of a template has no hour and no colour of its own, because it happens
+              inside the line it is part of — the same reason it has no completion state here. A
+              template is a plan, and a plan is never done. */}
+          <ul className="item-steps">
+            {stepsOf(item).map((step, stepIndex) => (
+              <li className="item-step" key={stepIndex}>
+                <input
+                  className="step-name"
+                  value={step.title}
+                  onChange={(e) =>
+                    change(index, {
+                      subtasks: changeStep(stepsOf(item), stepIndex, e.target.value),
+                    })}
+                  onBlur={flush}
+                  aria-label={`Step ${stepIndex + 1} of line ${index + 1}`}
+                />
+                <button
+                  type="button"
+                  className="step-remove"
+                  onClick={() =>
+                    push(
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, subtasks: withoutStep(stepsOf(item), stepIndex) }
+                          : item,
+                      ),
+                      true,
+                    )}
+                  aria-label={`Remove step ${stepIndex + 1} of line ${index + 1}`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+            <li className="item-step-add">
+              <button
+                type="button"
+                onClick={() =>
+                  push(
+                    items.map((item, i) =>
+                      i === index ? { ...item, subtasks: withStep(stepsOf(item)) } : item,
+                    ),
+                    true,
+                  )}
+                aria-label={`Add a step to line ${index + 1}`}
+              >
+                Add a step
+              </button>
+            </li>
+          </ul>
         </div>
       ))}
 

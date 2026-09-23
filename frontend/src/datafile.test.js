@@ -39,6 +39,7 @@ function good(overrides = {}) {
     tables: {
       calendars: [{ ref: 'home' }],
       routines: [],
+      routine_subtasks: [],
       routine_overrides: [],
       templates: [],
       template_blocks: [],
@@ -56,8 +57,8 @@ test('a complete export is described in terms a person counts things in', () => 
   const seen = summarize(good())
   assert.equal(seen.ok, true)
   assert.deepEqual(seen.counts, {
-    calendars: 1, routines: 0, routine_overrides: 0, templates: 0, template_blocks: 0,
-    blocks: 2, events: 1, sync_log: 0, push_sent: 0, settings: 0,
+    calendars: 1, routines: 0, routine_subtasks: 0, routine_overrides: 0, templates: 0,
+    template_blocks: 0, blocks: 2, events: 1, sync_log: 0, push_sent: 0, settings: 0,
   })
   assert.equal(seen.says, '2 blocks, 1 event and 1 calendar')
 })
@@ -87,6 +88,19 @@ test('a file from before routines is a whole file, not an incomplete one', () =>
   const seen = summarize(older)
   assert.equal(seen.ok, true, seen.why)
   assert.equal(seen.counts.routines, 0)
+  assert.equal(seen.counts.blocks, 2)
+})
+
+test('a file from before checklists is a whole file, not an incomplete one', () => {
+  // Version 4 was written by the release before this one, which had no `routine_subtasks` table
+  // and never promised one. A version 4 file that is missing it has not been edited.
+  const older = { ...good(), version: 4 }
+  older.tables = { ...older.tables }
+  for (const name of TABLES) if (!TABLES_BY_VERSION[4].includes(name)) delete older.tables[name]
+
+  const seen = summarize(older)
+  assert.equal(seen.ok, true, seen.why)
+  assert.equal(seen.counts.routine_subtasks, 0)
   assert.equal(seen.counts.blocks, 2)
 })
 
@@ -153,8 +167,8 @@ test('an empty export says so rather than listing zeroes', () => {
   const seen = summarize(
     good({
       tables: {
-        calendars: [], routines: [], routine_overrides: [], templates: [], template_blocks: [],
-        blocks: [], events: [], sync_log: [], push_sent: [], settings: [],
+        calendars: [], routines: [], routine_subtasks: [], routine_overrides: [], templates: [],
+        template_blocks: [], blocks: [], events: [], sync_log: [], push_sent: [], settings: [],
       },
     }),
   )

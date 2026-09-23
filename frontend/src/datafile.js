@@ -17,10 +17,11 @@ export const FORMAT = 'sundial-export'
 /** The newest export format this build understands. Must match `VERSION` in export.py.
  *
  *  Version 2 added routines and their overrides, version 3 the settings table, version 4
- *  templates and the items they are made of. It is a version bump rather than an addition
- *  because what a file promises is what existed when it was written: a version 1 file with no
- *  routines table is complete, and a version 2 file without one has been edited. */
-export const VERSION = 4
+ *  templates and the items they are made of, version 5 the checklist lines a routine holds. It
+ *  is a version bump rather than an addition because what a file promises is what existed when
+ *  it was written: a version 1 file with no routines table is complete, and a version 2 file
+ *  without one has been edited. */
+export const VERSION = 5
 
 /** The exact words the server requires before it will replace a database.
  *  Must match `IMPORT_CONFIRMATION` in backend/app.py. Deliberately not "true": a request that
@@ -31,21 +32,25 @@ export const CONFIRMATION = 'replace everything'
  *  A file missing one of these is refused here as well as there, because "missing" and "empty"
  *  are the same thing once imported, so the partial file would delete the part it left out. */
 export const TABLES = [
-  'calendars', 'routines', 'routine_overrides', 'templates', 'template_blocks', 'blocks',
-  'events', 'sync_log', 'push_sent', 'settings',
+  'calendars', 'routines', 'routine_subtasks', 'routine_overrides', 'templates',
+  'template_blocks', 'blocks', 'events', 'sync_log', 'push_sent', 'settings',
 ]
 
 /** What each format version promised — `TABLES_BY_VERSION` in export.py.
  *
  *  The panel will not offer the button for a file it thinks is incomplete, so refusing a file
  *  the server would have accepted is a real refusal with a wrong sentence on it. An export
- *  taken before routines existed has five tables and no routines, and that is a whole file. */
+ *  taken before routines existed has five tables and no routines, and that is a whole file.
+ *  Version 4 is spelled out rather than left as "everything up to here" for the same reason:
+ *  it had no `routine_subtasks`, and a version 4 file that is missing one is complete. */
 export const TABLES_BY_VERSION = {
   1: ['calendars', 'blocks', 'events', 'sync_log', 'push_sent'],
   2: ['calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent'],
   3: ['calendars', 'routines', 'routine_overrides', 'blocks', 'events', 'sync_log', 'push_sent',
     'settings'],
-  4: TABLES,
+  4: ['calendars', 'routines', 'routine_overrides', 'templates', 'template_blocks', 'blocks',
+    'events', 'sync_log', 'push_sent', 'settings'],
+  5: TABLES,
 }
 
 /** The tables a person would recognise, and what to call them when counting them.

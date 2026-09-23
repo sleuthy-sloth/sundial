@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { buildAgenda } from '../agenda'
+import { hasSteps, stepsOf } from '../subtasks'
 import { durText, hhmm } from '../time'
 import ApplyTemplate from './ApplyTemplate'
 import Row from './Row'
@@ -18,7 +19,7 @@ const spanOf = (items) => {
 }
 
 export default function Agenda({
-  blocks, inbox, draft, captureRef, onDraft, onCapture, onOpen, onToggle, onAddAt,
+  blocks, inbox, draft, captureRef, onDraft, onCapture, onOpen, onToggle, onToggleStep, onAddAt,
   leftover = [], onMoveLeftover, onLeaveThere,
   leaving = [], settling = [], dayClear = false,
   templates = [], templateNote = '', onApplyTemplate,
@@ -99,6 +100,19 @@ export default function Agenda({
                     Leave there
                   </button>
                 </span>
+                {/* What is in it, so the three buttons above are a decision about something you
+                    can see. Named and not tickable: this is yesterday's work being offered, and
+                    ticking a step of it before taking it in would be a write to a day you are
+                    still deciding about. */}
+                {hasSteps(block) && (
+                  <ul className="row-steps">
+                    {stepsOf(block).map((step) => (
+                      <li className={step.done ? 'row-step done' : 'row-step'} key={step.id}>
+                        <span className="step-title">{step.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
@@ -145,6 +159,7 @@ export default function Agenda({
                     settling={settling.includes(block.id)}
                     onOpen={onOpen}
                     onToggle={onToggle}
+                    onToggleStep={onToggleStep}
                   />
                 ))}
 
@@ -175,6 +190,7 @@ export default function Agenda({
                         settling={settling.includes(block.id)}
                         onOpen={onOpen}
                         onToggle={onToggle}
+                        onToggleStep={onToggleStep}
                       />
                     ))}
                   </div>

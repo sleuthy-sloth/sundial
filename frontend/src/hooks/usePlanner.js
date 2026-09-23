@@ -16,6 +16,7 @@ import { api } from '../api'
 import { DAY_MIN, HOUR_PX, SNAP_MIN, snap, todayISO } from '../time'
 import { bucketOf } from '../agenda'
 import { isOccurrence, occurrenceOf } from '../routines'
+import { whereSteps } from '../subtasks'
 import { weekStart } from '../week'
 import { describeApply, payloadItems } from '../templates'
 import {
@@ -388,6 +389,44 @@ export function usePlanner({ contentRef }) {
     }
   }
 
+  /** The same local write for a step, which lives inside its task rather than in the lists.
+   *
+   *  A step is not a block on the day, so it is not in `blocks` or `inbox` — it is nested on the
+   *  task it belongs to, in the list it was read in. Both lists are walked because a task can be
+   *  either: scheduled on the day, or still in the inbox waiting for one. */
+  const patchStepLocal = (blockId, stepId, done) => {
+    const apply = (list) =>
+      list.map((b) =>
+        b.id === blockId
+          ? { ...b, subtasks: (b.subtasks ?? []).map((s) => (s.id === stepId ? { ...s, done } : s)) }
+          : b,
+      )
+    setBlocks(apply)
+    setInbox(apply)
+  }
+
+  /** Tick a step from the row it is drawn under.
+   *
+   *  Optimistic, like a task being ticked — the box should fill under the finger. The write
+   *  goes to the step's own row, or, on a day of a routine, to that day's occurrence: a step of
+   *  a rule belongs to the rule, and only what was ticked is about this day. A step never
+   *  finishes its task and a task never ticks its steps: the two are separate statements and
+   *  this is the one that ticks one step.
+   */
+  const toggleStep = async (block, step) => {
+    const on = !step.done
+    patchStepLocal(block.id, step.id, on)
+    try {
+      const { routine_id, day: onDay } = occurrenceOf(block)
+      if (routine_id) await api.tickRoutineStep(routine_id, onDay, step.id, on)
+      else await api.patch(step.id, { done: on })
+      await load()
+    } catch (e) {
+      setError(e.message)
+      patchStepLocal(block.id, step.id, !on)
+    }
+  }
+
   /** What is left from yesterday, less what this tab has already left alone.
    *
    *  The setting decides whether any of it is drawn at all: "ask" shows the section, "leave" says
@@ -582,8 +621,75 @@ export function usePlanner({ contentRef }) {
     },
   }
 
+  /** The checklist under whatever the panel has open, as four writes.
+   *
+   *  None of these is `onSave`: a step is not a field of the thing being edited. A task's step
+   *  is a row of its own, addressed by its id; a rule's step is a definition that every day of
+   *  the rule draws, addressed by the rule and the step; and a day's tick is a fact about that
+   *  day, addressed by the rule, the day and the step. `whereSteps` — see `subtasks.js` — is the
+   *  one place that tells the three apart, so the panel does not have to.
+   *
+   *  Every one of them reloads the day afterwards, which is what puts the server's order back on
+   *  the screen: the order the steps were written in is the server's to keep.
+   */
+  const stepActions = {
+    async add(title) {
+      const where = whereSteps(subject)
+      const name = String(title ?? '').trim()
+      if (!where || !name) return
+      try {
+        if (where.kind === 'block') await api.create({ title: name, parent_id: where.blockId })
+        else await api.addRoutineStep(where.routineId, name)
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async rename(stepId, title) {
+      const where = whereSteps(subject)
+      const name = String(title ?? '').trim()
+      if (!where || !name) return
+      try {
+        if (where.kind === 'block') await api.patch(stepId, { title: name })
+        else await api.renameRoutineStep(where.routineId, stepId, name)
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async remove(stepId) {
+      const where = whereSteps(subject)
+      if (!where) return
+      try {
+        await writes.current.run(stepId, () =>
+          where.kind === 'block'
+            ? api.remove(stepId)
+            : api.removeRoutineStep(where.routineId, stepId),
+        )
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    async tick(stepId, done) {
+      const where = whereSteps(subject)
+      if (!where?.tickable) return
+      try {
+        await writes.current.run(stepId, () =>
+          where.kind === 'occurrence'
+            ? api.tickRoutineStep(where.routineId, where.day, stepId, done)
+            : api.patch(stepId, { done }),
+        )
+        await load()
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+  }
+
   /** What the editor panel is handed. One object, so the panel does not have to know which
-   *  kind of thing it is saving: `onSave` goes to whichever half is on screen. */
+   *  kind of thing it is saving: `onSave` goes to whichever half is on screen, and `steps` is
+   *  the checklist, which is never a change to the thing being edited. */
   const editor = {
     onSave: (changes) =>
       subject?.kind === 'routine'
@@ -594,6 +700,7 @@ export function usePlanner({ contentRef }) {
     onReset: () => resetOccurrence(subject.block),
     onRemove: removeSubject,
     onHalf: setHalf,
+    steps: stepActions,
   }
 
   return {
@@ -605,6 +712,7 @@ export function usePlanner({ contentRef }) {
     // tab's "leave there" have both had their say by the time it arrives.
     leftover: offered, rollover, setRollover, moveLeftover, leaveOne,
     templates, templateNote, templateActions,
-    load, write, capture, addToSection, scheduleAt, toggleDone, remove, saveRoutine, editor,
+    load, write, capture, addToSection, scheduleAt, toggleDone, toggleStep, remove, saveRoutine,
+    editor,
   }
 }
