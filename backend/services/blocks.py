@@ -28,15 +28,32 @@ def row_to_dict(row) -> dict:
 
 
 def get_block(block_id: str) -> dict:
+    """One block, with its checklist if it has one.
+
+    The import is inside the function because `services/subtasks.py` reads block rows through
+    `row_to_dict`, and one of the two has to be the one that waits. This is the smaller half: a
+    task's lines are two lines of SQL and the caller of this function has already paid for a
+    connection.
+    """
+    from services import subtasks
+
     with db() as conn:
         row = conn.execute("SELECT * FROM blocks WHERE id = ?", (block_id,)).fetchone()
-    if row is None:
-        raise HTTPException(404, "no such block")
-    return row_to_dict(row)
+        if row is None:
+            raise HTTPException(404, "no such block")
+        block = row_to_dict(row)
+        subtasks.attach(conn, [block])
+    return block
 
 
 def pick_color() -> int:
-    """Rotate the palette so consecutive new blocks look different."""
+    """Rotate the palette so consecutive new blocks look different.
+
+    Top-level blocks only: a checklist line is not a task you put on a day, and counting them
+    would step the palette along every time somebody wrote down a step.
+    """
     with db() as conn:
-        n = conn.execute("SELECT COUNT(*) AS n FROM blocks").fetchone()["n"]
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM blocks WHERE parent_id IS NULL"
+        ).fetchone()["n"]
     return n % len(PALETTE)

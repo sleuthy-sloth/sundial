@@ -42,23 +42,28 @@ from typing import Any
 FORMAT = "sundial-export"
 
 # 1: calendars, blocks, events and the two logs. 2: routines and their overrides. 3: the settings
-# table. 4: templates and the items they are made of.
+# table. 4: templates and the items they are made of. 5: the checklist lines a routine holds.
 #
 # The number is not decoration. What a file promises is what existed when it was written, so a
 # version 1 file that has no routines table is a complete file — there were no routines in the
 # app that wrote it — while a version 2 file without one has been edited or truncated. Reading
 # the promise off the file's own version is what lets an export from before this release import
 # without being refused for a table that did not exist yet.
-VERSION = 4
+VERSION = 5
 
 # Every table carried, in an order that satisfies the foreign keys when it is put back:
-# `events` references `calendars`, `routine_overrides` references `routines` and
-# `template_blocks` references `templates`, so the parents go in first. Deletion walks it
-# backwards. `settings` has no foreign key either way and sits last, which is where a table
-# about the app rather than about a day belongs.
+# `events` references `calendars`, `routine_overrides` and `routine_subtasks` reference
+# `routines`, and `template_blocks` references `templates`, so the parents go in first. Deletion
+# walks it backwards. `settings` has no foreign key either way and sits last, which is where a
+# table about the app rather than about a day belongs.
+#
+# `blocks` is the one table that references itself — a checklist line's `parent_id` names the task
+# it belongs to — which no ordering can fix in general, so the import defers the check to its own
+# commit instead. See `replace`.
 TABLES: tuple[str, ...] = (
     "calendars",
     "routines",
+    "routine_subtasks",
     "routine_overrides",
     "templates",
     "template_blocks",
@@ -76,7 +81,9 @@ TABLES_BY_VERSION: dict[int, tuple[str, ...]] = {
     2: ("calendars", "routines", "routine_overrides", "blocks", "events", "sync_log", "push_sent"),
     3: ("calendars", "routines", "routine_overrides", "blocks", "events", "sync_log", "push_sent",
         "settings"),
-    4: TABLES,
+    4: ("calendars", "routines", "routine_overrides", "templates", "template_blocks", "blocks",
+        "events", "sync_log", "push_sent", "settings"),
+    5: TABLES,
 }
 
 # Present in the database, absent from the file, on purpose. Each entry is the sentence
@@ -256,8 +263,17 @@ def replace(conn: sqlite3.Connection, tables: dict[str, list[dict[str, Any]]]) -
     Not atomic by construction here — the caller's transaction is. `store.db()` commits
     on the way out and rolls back on an exception, and the explicit rollback below means
     a failure part way through leaves the database exactly as it was.
+
+    Foreign keys are deferred to that commit rather than checked row by row, which is what
+    makes `blocks` loadable at all: a task and its checklist lines live in one table, and a file
+    is under no obligation to list the task first. Deferring does not weaken the check — a line
+    whose task is missing from the file still fails, at the commit, and takes the whole import
+    down with it, which is the same answer as before with the file's order left alone.
     """
     try:
+        # Reset at the end of the transaction, so this applies to this import and not to the
+        # next write this connection happens to make.
+        conn.execute("PRAGMA defer_foreign_keys = ON")
         for name in reversed(TABLES):  # children before parents, for the foreign keys
             conn.execute(f"DELETE FROM {name}")
         written: dict[str, int] = {}
@@ -267,6 +283,16 @@ def replace(conn: sqlite3.Connection, tables: dict[str, list[dict[str, Any]]]) -
                 marks = ", ".join("?" for _ in row)
                 conn.execute(f"INSERT INTO {name} ({columns}) VALUES ({marks})", list(row.values()))
             written[name] = len(tables[name])
+        # Deferred means "checked at the commit", and this is a request handler's transaction
+        # rather than a script's: the caller turns an IntegrityError into a sentence for the
+        # person who picked the file, and an error raised as the connection closes would arrive
+        # as a 500 with nothing readable in it. So the check is asked for here, where it can still
+        # be explained, and `foreign_key_check` is the same question the commit will ask.
+        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if broken:
+            names = sorted({f'a row in "{row[0]}" names a {row[2]} the file does not carry'
+                            for row in broken})
+            raise sqlite3.IntegrityError("; ".join(names))
     except Exception:
         conn.rollback()
         raise

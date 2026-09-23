@@ -40,6 +40,9 @@ def _items(raw_items) -> list[dict]:
     could not have lived in the schema: an item that starts at 23:30 and lasts an hour is only
     wrong as a pair. An Anytime item is not checked against the day at all — it has no hour, so
     there is nothing for it to run past.
+
+    The lines under an item are checked in the same pass, so a bad step refuses the request before
+    any of it is written — the same shape the whole list already had.
     """
     items: list[dict] = []
     for index, item in enumerate(raw_items, start=1):
@@ -54,6 +57,11 @@ def _items(raw_items) -> list[dict]:
             raise HTTPException(400, f"unknown color {color!r}")
         if item.start_min is not None:
             check_fits(item.start_min, item.duration_min)
+        lines: list[dict] = []
+        for step, line in enumerate(item.subtasks, start=1):
+            if not str(line.title).strip():
+                raise HTTPException(400, f"item {index}, step {step} needs a title")
+            lines.append({"title": str(line.title).strip(), "duration_min": line.duration_min})
         items.append(
             {
                 "title": title,
@@ -62,6 +70,7 @@ def _items(raw_items) -> list[dict]:
                 "color": color,
                 "icon": str(item.icon).strip(),
                 "notes": item.notes,
+                "subtasks": lines,
             }
         )
     return items

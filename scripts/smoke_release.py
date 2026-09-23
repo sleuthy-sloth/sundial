@@ -7,7 +7,8 @@ run on the machine you actually use:
 
   1. a fresh start — no database at all, the app makes one and answers
   2. an upgrade with plans already in it — including a day in the old compact form, which
-     the app has to repair rather than refuse
+     the app has to repair rather than refuse, and the checklist this release adds, which
+     has to arrive on the same database
   3. a restore from backup — what was written after the copy is gone, what was written
      before it is there
 
@@ -97,7 +98,7 @@ def main() -> int:
         day = "2026-09-21"
         first = run("day", db, day=day)
         check("the app makes a database and answers", "blocks" in first)
-        check("every migration runs", schema_versions(db) == [1, 2, 3, 4, 5, 6, 7], str(schema_versions(db)))
+        check("every migration runs", schema_versions(db) == [1, 2, 3, 4, 5, 6, 7, 8], str(schema_versions(db)))
         standup = run("create", db, block={"title": "Standup", "day": day, "start_min": 540, "duration_min": 30})
         check("a plan can be saved", standup.get("title") == "Standup")
 
@@ -115,11 +116,20 @@ def main() -> int:
 
         after = run("day", db, day=day)
         titles = [b["title"] for b in after["blocks"]]
-        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5, 6, 7], str(schema_versions(db)))
+        check("the app comes up on the older database", schema_versions(db) == [1, 2, 3, 4, 5, 6, 7, 8], str(schema_versions(db)))
         check("a day stored the old way is repaired", "Old plan" in titles)
         check("and found on the day it was meant for", any(b["id"] == old["id"] for b in after["blocks"]))
         check("the plans that were already fine are untouched", "Standup" in titles)
         check("the inbox is untouched", any(b["title"] == "Call the dentist" for b in after["inbox"]))
+
+        # The checklist this release adds, on the database that was just repaired: the columns
+        # have to be there and usable, which a version list on its own cannot say.
+        meant = run("create", db, block={"title": "Renew the passport", "duration_min": 5, "parent_id": old["id"]})
+        check("a checklist line can be made on the upgraded database", meant.get("parent_id") == old["id"])
+        again = run("day", db, day=day)
+        nested = next(b for b in again["blocks"] if b["id"] == old["id"])
+        check("and it reads back under its task", [s["title"] for s in nested["subtasks"]] == ["Renew the passport"])
+        check("without being counted as a block of its own", len(again["blocks"]) == len(after["blocks"]))
 
         print("a restore from backup")
         copy = work / "copy.db"

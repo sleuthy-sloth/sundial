@@ -98,9 +98,9 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     with store.db() as conn:
         document = json.loads(json.dumps(export.dump(conn, 7)))  # through real JSON
         assert export.counts(document) == {
-            "calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 0,
-            "template_blocks": 0, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
-            "settings": 0,
+            "calendars": 1, "routines": 0, "routine_subtasks": 0, "routine_overrides": 0,
+            "templates": 0, "template_blocks": 0, "blocks": 2, "events": 1, "sync_log": 1,
+            "push_sent": 0, "settings": 0,
         }
 
     # Empty it, the way a fresh install on another machine would be. Importing the same
@@ -115,9 +115,10 @@ def test_a_round_trip_brings_the_data_back_unchanged(database):
     with store.db() as conn:
         written = export.replace(conn, export.check(document, 7))
     assert everything() == before, "the round trip lost or changed something"
-    assert written == {"calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 0,
-                       "template_blocks": 0, "blocks": 2, "events": 1, "sync_log": 1,
-                       "push_sent": 0, "settings": 0}
+    assert written == {"calendars": 1, "routines": 0, "routine_subtasks": 0,
+                       "routine_overrides": 0, "templates": 0, "template_blocks": 0,
+                       "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
+                       "settings": 0}
 
 
 def test_a_routine_and_the_days_it_was_told_otherwise_survive_a_round_trip(database):
@@ -235,10 +236,10 @@ def test_it_refuses_a_file_from_a_newer_schema(database):
     # Migrations only run forwards, so a newer schema cannot be understood, and
     # part-understanding it is how data gets quietly dropped.
     with store.db() as conn:
-        document = export.dump(conn, 7)
-    document["schema_version"] = 8
-    with pytest.raises(export.ExportError, match="schema 8"):
-        export.check(document, 7)
+        document = export.dump(conn, 8)
+    document["schema_version"] = 9
+    with pytest.raises(export.ExportError, match="schema 9"):
+        export.check(document, 8)
 
 
 def test_a_file_written_before_templates_still_imports(database):
@@ -256,7 +257,7 @@ def test_a_file_written_before_templates_still_imports(database):
     for name in ("templates", "template_blocks"):
         del document["tables"][name]
 
-    tables = export.check(document, 7)  # does not raise
+    tables = export.check(document, 8)  # does not raise
     assert tables["templates"] == [] and tables["template_blocks"] == []
     assert export.counts(document)["templates"] == 0
 
@@ -286,9 +287,9 @@ def test_a_template_and_its_items_survive_a_round_trip(database):
     with store.db() as conn:
         document = json.loads(json.dumps(export.dump(conn, 7)))
     assert export.counts(document) == {
-        "calendars": 1, "routines": 0, "routine_overrides": 0, "templates": 1,
-        "template_blocks": 2, "blocks": 2, "events": 1, "sync_log": 1, "push_sent": 0,
-        "settings": 0,
+        "calendars": 1, "routines": 0, "routine_subtasks": 0, "routine_overrides": 0,
+        "templates": 1, "template_blocks": 2, "blocks": 2, "events": 1, "sync_log": 1,
+        "push_sent": 0, "settings": 0,
     }
 
     emptied = dict(document, tables={name: [] for name in export.TABLES})
@@ -402,7 +403,7 @@ def test_export_downloads_a_named_file_of_the_right_shape(client):
     )
     document = answer.json()
     assert document["format"] == export.FORMAT
-    assert document["schema_version"] == 7
+    assert document["schema_version"] == 8, "the checklist migration is schema 8"
     assert len(document["tables"]["blocks"]) == 2
     assert "push_subscriptions" not in document["tables"]
 
@@ -456,8 +457,9 @@ def test_the_round_trip_works_over_http_and_keeps_a_way_back(client):
                                               "document": document})
     assert answer.status_code == 200
     answer = answer.json()
-    assert answer["replaced"] == {"calendars": 1, "routines": 0, "routine_overrides": 0,
-                                  "templates": 0, "template_blocks": 0, "blocks": 2, "events": 1,
+    assert answer["replaced"] == {"calendars": 1, "routines": 0, "routine_subtasks": 0,
+                                  "routine_overrides": 0, "templates": 0,
+                                  "template_blocks": 0, "blocks": 2, "events": 1,
                                   "sync_log": 1, "push_sent": 0, "settings": 0}
     assert everything() == before
 

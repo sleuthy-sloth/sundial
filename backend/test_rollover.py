@@ -220,6 +220,10 @@ def test_a_second_look_offers_nothing_twice(client):
     assert set(rows("blocks")[0]) == {
         "id", "title", "day", "start_min", "duration_min", "color", "icon", "notes", "done",
         "updated_at", "external_uid",
+        # The two the checklist migration added, and neither is a marker: `parent_id` says
+        # what a row belongs to and `sort_order` says where it sits in a list. A rollover
+        # still writes nothing about itself.
+        "parent_id", "sort_order",
     }, "a column was added to carry a rollover marker"
 
 

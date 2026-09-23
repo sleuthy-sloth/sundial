@@ -1,9 +1,15 @@
 """Repeating blocks: the rule, and the days you decided something different.
 
-Six routes, and two ideas behind them. Editing a routine changes every occurrence that has not
+Eleven routes, and two ideas behind them. Editing a routine changes every occurrence that has not
 been touched — that is what a routine is for. Editing or skipping one day writes an override,
-which is the only thing that can make one day differ, and the only thing the other five routes
+which is the only thing that can make one day differ, and the only thing the first seven routes
 do.
+
+The last four are the checklist a routine can hold, and they sit on the same two sides: a line is
+a definition that belongs to the rule (add, rename, remove), and ticking one is a statement about
+a single day, which is written to that day's override. Neither side can write the other's half,
+which is what stops a ticked box from becoming a rule or a rule change from clearing a morning's
+ticks.
 
 Every refusal here is a sentence. A routine that would end before it starts, a set of weekdays
 that names no days, a day the rule does not reach: each is a 400 with something to read, because
@@ -17,7 +23,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from clock import now_iso, today
-from schemas.routines import OccurrencePatch, RoutineIn, RoutinePatch
+from schemas.routines import OccurrencePatch, RoutineIn, RoutinePatch, SubtaskIn, SubtaskTick
 from services import routines
 from services.blocks import PALETTE
 from services.routines import KINDS
@@ -189,12 +195,13 @@ def _view(routine: dict, day: str, override: dict | None) -> dict:
 
     `occurrence` is null in exactly one case — you skipped it — and a null says that better than
     any state name would. The frontend reloads the day after every write; this is here so the
-    answer is true on its own.
+    answer is true on its own, checklist included: a route that ticked a line answers with the
+    line ticked.
     """
     return {
         "routine_id": routine["id"],
         "day": day,
-        "occurrence": routines.occurrence(routine, day, override),
+        "occurrence": routines.occurrence(routine, day, override, routine["subtasks"]),
     }
 
 
@@ -267,3 +274,84 @@ def reset_occurrence(routine_id: str, day: str) -> dict:
         if not dropped:
             raise HTTPException(404, f"nothing was ever changed about {day}")
     return _view(routine, day, None)
+
+
+# ---- the checklist a routine can hold -------------------------------------------------------
+# The rule's lines, and then one day's answer about one of them. The two are apart on purpose:
+# what the checklist IS belongs to the rule and changes every day of it, and what was TICKED is a
+# fact about one morning and changes nothing else. See `services/routines.py` for where each half
+# is stored.
+
+
+@router.post("/api/routines/{routine_id}/subtasks", status_code=201)
+def create_routine_subtask(routine_id: str, body: SubtaskIn) -> dict:
+    """Add a line to the rule's checklist.
+
+    The rule's, so it is drawn on every day the rule has, this one included — that is the whole
+    difference between editing a rule and editing a day, and it is why this is a route on the
+    routine rather than a write to an occurrence. Nothing is backfilled and no row is written for
+    any occurrence: the line is a definition, and the days it lands on are still calculated.
+    """
+    routine = routines.get_routine(routine_id)
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "a checklist line needs a title")
+    with db() as conn:
+        routines.add_line(conn, routine["id"], uuid.uuid4().hex[:12], title)
+    return routines.get_routine(routine_id)
+
+
+@router.patch("/api/routines/{routine_id}/subtasks/{subtask_id}")
+def rename_routine_subtask(routine_id: str, subtask_id: str, body: SubtaskIn) -> dict:
+    """Rename one line of the rule's checklist.
+
+    The id survives, which is the point of a route per line rather than a list that is replaced:
+    the ticks that name this line on the days it was ticked keep naming the same line.
+    """
+    routine = routines.get_routine(routine_id)
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "a checklist line needs a title")
+    with db() as conn:
+        routines.rename_line(conn, routine["id"], subtask_id, title)
+    return routines.get_routine(routine_id)
+
+
+@router.delete("/api/routines/{routine_id}/subtasks/{subtask_id}", status_code=204)
+def delete_routine_subtask(routine_id: str, subtask_id: str) -> None:
+    """Take a line off the rule. Every day of it stops drawing the line, and its ticks go with it."""
+    routines.get_routine(routine_id)  # 404 before anything is written
+    with db() as conn:
+        routines.drop_line(conn, routine_id, subtask_id)
+
+
+@router.patch("/api/routines/{routine_id}/occurrences/{day}/subtasks/{subtask_id}")
+def patch_occurrence_subtask(
+    routine_id: str, day: str, subtask_id: str, body: SubtaskTick
+) -> dict:
+    """Tick one line of one day of a rule.
+
+    The one occurrence write that is about a checklist line rather than about the block. It lands
+    on the override that says what this day is — created here if this is the first thing about the
+    day — which is why the box is still ticked after a reload, and why nothing had to invent a
+    `blocks` row for an occurrence to hang it on.
+
+    It does not touch `done`: ticking the last line of a morning does not finish the morning, and
+    finishing the morning does not tick its lines. The two are separate statements, and the app
+    has no opinion that connects them.
+    """
+    routine = routines.get_routine(routine_id)
+    _occurrence_day(routine, day)
+    with db() as conn:
+        routines.get_line(conn, routine_id, subtask_id)  # 404 if it is not this rule's line
+        current = routines.get_override(conn, routine_id, day)
+        ticked = routines.checked_ids(current["subtasks_done"] if current else "")
+        if body.done:
+            ticked.add(subtask_id)
+        else:
+            ticked.discard(subtask_id)
+        override = routines.set_override(
+            conn, routine_id, day, uuid.uuid4().hex[:12],
+            subtasks_done=routines.ids_text(ticked),
+        )
+    return _view(routine, day, override)
