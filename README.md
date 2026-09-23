@@ -73,7 +73,7 @@ to unfinished work, and which version this copy is. Nothing here is about a part
 Shared by both: a header that reads like an instrument (the day, the time now, and which
 view you are in), light and dark themes that follow your system, the free time between
 tasks drawn and named rather than implied, and a detail panel for icon, colour, notes,
-length, start time, done and delete. An emoji still earns its place on a timeline block,
+length, start time, steps, done and delete. An emoji still earns its place on a timeline block,
 where it helps you find one at a glance.
 
 Install it to your phone's home screen from Safari or Chrome — it is a real PWA, with an
@@ -243,7 +243,7 @@ backend/calendar_service.py the sync: credentials, transport, rules, database, s
 backend/migrations/         numbered .sql files, applied on boot
 backend/spa.py              serving the built app, and how long each file may be kept
 backend/export.py           the database as JSON, and putting it back
-backend/test_*.py           458 tests
+backend/test_*.py           480 tests
 scripts/check_calendar.py   connect by hand, list the calendars, count what is in the window
 scripts/smoke_release.py    the release path: fresh start, upgrade, restore
 scripts/make_art.py         the artwork, and the budgets CI checks it against
@@ -253,12 +253,13 @@ frontend/src/hooks/          the day (usePlanner), the calendar, the pointer, th
 frontend/src/art.js         when the all-clear artwork is allowed to appear
 frontend/src/routines.js    the words for a repeat, and which days one starts from (pure)
 frontend/src/templates.js   what a template says about itself, and the list edits (pure)
+frontend/src/subtasks.js    a task's checklist, and where a write about one goes (pure)
 frontend/src/components/    Header, TabBar, Agenda, Row, Timeline, Block, Inbox, Editor,
                             Routines, Templates, ApplyTemplate, Week, Profile, Glyph, LedgerArt,
                             CalendarPanel, Notifications, Switch, YourData
 frontend/src/assets/        the empty-state artwork, and the two self-hosted fonts
 frontend/src/week.js        the week as capacity rather than as a grid (pure)
-frontend/e2e/ui_check.mjs   333 browser checks: real mouse input, keyboard, axe, snapshots
+frontend/e2e/ui_check.mjs   349 browser checks: real mouse input, keyboard, axe, snapshots
 frontend/e2e/screenshot.mjs regenerates the images above
 frontend/e2e/baselines/     the visual-regression snapshots and the platform they came from
 frontend/src/calendar.js    what the calendar panel says, in words, and who else is coming (pure)
@@ -267,6 +268,7 @@ frontend/src/calendar.test.js  unit tests for the panel's wording (node --test)
 frontend/src/saving.test.js unit tests for the editing pieces (node --test)
 frontend/src/time.test.js   unit tests for the day arithmetic (node --test)
 frontend/src/templates.test.js  unit tests for what a template says and the list edits (node --test)
+frontend/src/subtasks.test.js   unit tests for the checklist and where a write goes (node --test)
 frontend/src/datafile.js    what the export panel may say about a file before using it
 scripts/backup.py           copy the database safely, and put a copy back
 deploy/sundial.service      systemd user unit
@@ -304,6 +306,16 @@ Anytime. Applying inserts ordinary blocks beside whatever the day already held: 
 moved or replaced, so a day that already had a plan on it keeps every minute of it, and two items
 at the same hour are two blocks at the same hour, which the day view draws and does not argue
 with. The export format is version 4 for them, for the same reason as above.
+
+A checklist is not a table, it is a parent. A step under a task is a `blocks` row with a `parent_id`
+and no day of its own, which is what keeps it out of the day's minutes, the week's counts and the
+rollover without any of them having to remember a rule — a parent with three five-minute steps is
+still one block of the length it says. A step under a template line is the same shape in
+`template_blocks`, saved with the list it belongs to, and applying copies it. A routine is the one
+case that needed a table of its own, because an occurrence is calculated: `routine_subtasks` holds
+the definitions the rule draws on every day of it, and what was ticked on one morning is a list of
+line ids on that day's override — one fact about one day, in the row that already held what you
+decided about it. The export format is version 5 for it.
 
 ## Connecting a calendar
 
@@ -411,9 +423,9 @@ carry — are all refused with a sentence, before anything is written.
 ## Checks
 
 ```
-cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 458 tests
-cd frontend && npm test                                # 143 unit tests, node --test
-cd frontend && npm run check:ui                        # 333 browser checks
+cd backend  && env -u PYTHONPATH .venv/bin/pytest -q   # 480 tests
+cd frontend && npm test                                # 155 unit tests, node --test
+cd frontend && npm run check:ui                        # 349 browser checks
 env -u PYTHONPATH backend/.venv/bin/python scripts/smoke_release.py
 ```
 
@@ -508,6 +520,14 @@ into one set of hours, and open time is the day minus that. The day whose blocks
 reads 2h against a sum of 2h30, and the two numbers sit beside each other in the answer rather than
 one replacing the other.
 
+**Checklists** came with it. A task can hold steps, written and ticked where they are read: inside
+the task's own row, indented to its title, each one a box beside the row rather than a row of its
+own. They are the first thing in the app that is deliberately not a block on the day — a step takes
+its task's colour, has no day of its own, and moves with the task it is inside, so a day full of
+checklists is still a day you can read. A routine's step is a definition its days draw, and what you
+ticked on one morning is stored against that morning rather than against the rule, which is why the
+box is still ticked when you come back.
+
 The honest gaps:
 
 - **Google is not switched on**, as above. The transport, the consent flow, the token file and
@@ -526,6 +546,10 @@ The honest gaps:
 - **A template applied by mistake is undone by hand.** Applying adds blocks and records nothing
   about where they came from, so there is no "remove what I just applied" — the blocks come off one
   at a time, like any other block.
+- **A step cannot be given a time of its own.** A step is part of its task, which is what keeps it
+  out of the day's minutes and out of the rollover, so there is nowhere to schedule one on its own —
+  and no "2 of 3" beside a task either: the steps on the screen are the progress, and a score on a
+  checklist is the sort of thing this app does not keep.
 - **A week cannot be edited.** A column is a day to open, not a day to drop something on: moving a
   block from one day to another means opening both. The week reads the plan the app last loaded, so
   a change made somewhere else shows up when the app next looks rather than as it happens.
