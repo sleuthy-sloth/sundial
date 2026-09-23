@@ -490,6 +490,9 @@ is ready, so what is on `main` is always a version that runs.
 
 ## Status
 
+What is planned next lives in [docs/ROADMAP.md](docs/ROADMAP.md). What the app does today, and
+what it deliberately leaves out, is below.
+
 The calendar is in the day now: the day's appointments are drawn on the timeline at the
 hour their own clock says, readable in the same ink as a block and marked as not yours to move by
 a dotted hairline rather than by being faded. Where an appointment and a block share an hour, the
