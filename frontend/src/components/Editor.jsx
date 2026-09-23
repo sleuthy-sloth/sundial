@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ICONS } from '../icons'
+import { stepsOf, whereSteps } from '../subtasks'
 import { durText, hhmm } from '../time'
 import {
   REPEATS,
@@ -19,6 +20,113 @@ const COLORS = ['slate', 'sky', 'violet', 'amber', 'emerald', 'rose', 'teal', 'i
 
 // How long the typing has to stop before what was typed is sent.
 const HOLD = 450
+
+/** The checklist under the thing the panel has open.
+ *
+ *  Its own component because it keeps its own state: the name being typed into a step, and the
+ *  name being typed into the box that adds one. Neither is a change to the block, so neither
+ *  goes out with the title field's own debounce — a step's new name is sent when you leave it or
+ *  press Enter, and a step is created when you ask for one.
+ *
+ *  No box on the rule half. The steps there are the definitions every day of the rule draws, and
+ *  a tick is a fact about one morning: a checkbox on the rule would be a control that writes
+ *  nothing. `where.tickable` is that decision, made once in `subtasks.js`.
+ *
+ *  The names are inputs rather than text, so a step is renamed where it was written. The list
+ *  keeps the server's order — a reload after every write is what puts it back — and an empty
+ *  checklist shows nothing but the box that starts one.
+ */
+function Steps({ lines, where, onAdd, onRename, onRemove, onTick }) {
+  const [names, setNames] = useState({})
+  const [fresh, setFresh] = useState('')
+
+  const nameOf = (step) => names[step.id] ?? step.title
+
+  const commit = (step) => {
+    const name = nameOf(step).trim()
+    setNames((held) => {
+      const { [step.id]: _typed, ...rest } = held
+      return rest
+    })
+    if (name && name !== step.title) onRename(step.id, name)
+  }
+
+  const create = (event) => {
+    event.preventDefault()
+    const name = fresh.trim()
+    if (!name) return
+    setFresh('')
+    onAdd(name)
+  }
+
+  return (
+    <div className="field field-steps">
+      <span>Steps</span>
+
+      {lines.length > 0 && (
+        <ul className="step-list">
+          {lines.map((step, index) => (
+            <li className={step.done ? 'step-edit done' : 'step-edit'} key={step.id}>
+              {where?.tickable && (
+                <button
+                  type="button"
+                  className="step-notch"
+                  role="checkbox"
+                  aria-checked={step.done}
+                  aria-label={
+                    step.done ? `Mark ${step.title} not done` : `Mark ${step.title} done`
+                  }
+                  onClick={() => onTick(step.id, !step.done)}
+                />
+              )}
+              <input
+                className="step-name"
+                value={nameOf(step)}
+                onChange={(e) =>
+                  setNames((held) => ({ ...held, [step.id]: e.target.value }))
+                }
+                onBlur={() => commit(step)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commit(step)
+                  }
+                }}
+                aria-label={`Step ${index + 1} name`}
+              />
+              <button
+                type="button"
+                className="step-remove"
+                onClick={() => onRemove(step.id)}
+                aria-label={`Remove step ${index + 1}`}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form className="step-add" onSubmit={create}>
+        <input
+          className="step-new"
+          value={fresh}
+          onChange={(e) => setFresh(e.target.value)}
+          placeholder="Add a step"
+          aria-label="Add a step"
+        />
+        <button type="submit">Add</button>
+      </form>
+
+      {where?.kind === 'occurrence' && (
+        <span className="field-note">
+          Steps belong to the routine: a new one is on every day of it, and a tick is about this
+          day alone.
+        </span>
+      )}
+    </div>
+  )
+}
 
 /** The editor owns what is on screen while you type.
  *
@@ -41,7 +149,7 @@ const HOLD = 450
  * of them behind a modal is how a person edits the wrong one.
  */
 export default function Editor({
-  subject, day, onSave, onRepeat, onSkip, onReset, onRemove, onHalf, onClose,
+  subject, day, onSave, onRepeat, onSkip, onReset, onRemove, onHalf, onClose, steps,
 }) {
   const block = subject.block
   const routine = subject.routine
@@ -517,6 +625,15 @@ export default function Editor({
           </label>
         </>
       )}
+
+      <Steps
+        lines={stepsOf(shown)}
+        where={whereSteps(subject)}
+        onAdd={steps.add}
+        onRename={steps.rename}
+        onRemove={steps.remove}
+        onTick={steps.tick}
+      />
 
       <label className="field">
         <span>Notes</span>

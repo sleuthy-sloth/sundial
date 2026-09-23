@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+**A task can hold a checklist.** Steps are written under a task and read under it: inside the task's
+own row, indented to its title, each one a box of its own *beside* the row's button rather than
+inside it, so a screen reader can reach it and the keyboard can too. A step is not a block on the
+day — the timeline still draws one block per block, a section still counts tasks, and `/api/health`
+still counts tasks rather than rows. A ticked step is struck through; a finished task does not strike
+its steps through, because the task says it is done and its steps say which of them were, and neither
+is derived from the other.
+
+Three things hold checklists and they are three different shapes, which is why migration 8 is four
+statements rather than one. A **task**'s step is a `blocks` row with a `parent_id`: it takes the
+task's colour, it cannot be given a day or an hour, it cannot be sent to the inbox, and it moves with
+its task — rollover still offers an unfinished task as one item, checklist and all. A **routine**'s
+step is a definition the rule holds (`routine_subtasks`), drawn on every day of the rule and changed
+for every day at once. A **template**'s step belongs to the line it sits inside, saved with the item
+list, and applying the template copies it.
+
+Ticking a routine's step is the one write that is not about the rule. A day of a routine is
+calculated rather than stored, so a box kept on the rule's screen would reset with the calendar: what
+was ticked on one morning is a list of line ids on that day's override (`subtasks_done`), which is
+why the box is still ticked when you come back — and why going back to the rule clears the boxes with
+the rest of that day, and why deleting a line costs its ticks and nothing else.
+
+Both write paths are optimistic, the way ticking a task is, and both take the day back if the write
+fails. The editor panel keeps the checklist in its own two pieces of state, so a step's new name is
+sent when you leave it or press Enter rather than on every keystroke.
+
+Migration 8 adds the columns and the table, and the export format is version 5 for
+`routine_subtasks`. A version 4 file is a whole file with no checklists rather than an incomplete
+one, and a version 5 file whose line names a task it does not carry is refused with a sentence before
+anything is written.
+
+Counts: 481 backend tests (23 new), 155 unit (12 new), 349 browser checks (16 new). All eight visual
+baselines are unchanged, which is the check that says a task with no steps looks exactly as it did.
+
 **A week reads as capacity, not as a calendar grid.** **Week** is the fourth destination along the
 foot of the app: seven columns, Monday first, each with the date, the time that day holds, what is
 left of it, and a bar for the share that is spoken for. Tap a column and that day opens in **Today**;

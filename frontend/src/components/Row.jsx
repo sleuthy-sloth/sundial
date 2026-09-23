@@ -1,3 +1,4 @@
+import { hasSteps, stepsOf } from '../subtasks'
 import { durText, hhmm } from '../time'
 import Glyph from './Glyph'
 
@@ -11,14 +12,24 @@ import Glyph from './Glyph'
  *  the inner one in some browsers. So the row is a plain container and both controls are its
  *  children, side by side, with the open button's own text as its name.
  *
+ *  A task's checklist is a third child, and the same rule applies to it: each step is its own
+ *  button, beside the title rather than inside the button that opens the editor. The steps are
+ *  drawn under the title, indented to it, and they are NOT rows of their own — nothing here is
+ *  a `.block` or a `.row`, because a step is part of its task and a day that counted them
+ *  separately would be a day that had stopped meaning what it says.
+ *
  *  `leaving` is the row playing its exit; `settling` is it arriving in the finished list.
  *  Both are decided by App, so a reload landing mid-animation cannot cut it short. */
-export default function Row({ block, linked, leaving, settling, onOpen, onToggle }) {
+export default function Row({
+  block, linked, leaving, settling, onOpen, onToggle, onToggleStep,
+}) {
   const scheduled = block.start_min != null
   const classes = ['row', `c-${block.color}`]
   if (block.done) classes.push('done')
   if (leaving) classes.push('leaving')
   if (settling) classes.push('settling')
+
+  const steps = stepsOf(block)
 
   return (
     <div className={classes.join(' ')} data-routine={block.source === 'routine' ? '1' : undefined}>
@@ -53,6 +64,28 @@ export default function Row({ block, linked, leaving, settling, onOpen, onToggle
           </span>
         </span>
       </button>
+
+      {hasSteps(block) && (
+        <ul className="row-steps">
+          {steps.map((step) => (
+            <li className={step.done ? 'row-step done' : 'row-step'} key={step.id}>
+              <button
+                type="button"
+                className="step-notch"
+                role="checkbox"
+                aria-checked={step.done}
+                aria-label={
+                  step.done
+                    ? `Mark ${step.title} not done`
+                    : `Mark ${step.title} done`
+                }
+                onClick={() => onToggleStep(block, step)}
+              />
+              <span className="step-title">{step.title}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

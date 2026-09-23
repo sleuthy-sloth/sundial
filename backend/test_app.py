@@ -318,6 +318,28 @@ def test_a_week_range_that_runs_off_the_calendar_is_refused(client):
     assert client.get("/api/week", params={"start": "9999-12-31", "days": 1}).status_code == 200
 
 
+def apply_migrations_upto(version: int) -> list[int]:
+    """Bring the database to `version` by running the shipped files, the way the app does.
+
+    The runner's own loop, stopped early. A test that needs the database an older release left
+    behind has to build one: the migration files are the only record of what that release's
+    schema was, and they are the one thing that never changes once shipped.
+    """
+    applied: list[int] = []
+    with sundial.db() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+        for path in sorted(sundial.MIGRATIONS.glob("*.sql")):
+            number = int(path.name.split("_", 1)[0])
+            if number > version:
+                break
+            conn.executescript(
+                "BEGIN;\n" + path.read_text()
+                + f"\nINSERT INTO schema_version (version) VALUES ({number});\nCOMMIT;"
+            )
+            applied.append(number)
+    return applied
+
+
 def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
     """An installation that stored '20260921' before the refusal existed gets it back."""
     with sundial.db() as conn:
@@ -331,11 +353,41 @@ def test_the_day_repair_rewrites_a_compact_date_already_stored(client):
         # runner correctly decides it has nothing to do.
         conn.execute("DELETE FROM schema_version WHERE version >= 3")
 
-    assert sundial.migrate() == [3, 4, 5, 6, 7]
+    assert sundial.migrate() == [3, 4, 5, 6, 7, 8]
 
     with sundial.db() as conn:
         rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))
     assert rows[0]["day"] == "2026-09-21"
+
+    found = client.get("/api/day?day=2026-09-21").json()["blocks"]
+    assert [b["title"] for b in found] == ["old row"]
+
+
+def test_a_database_from_an_older_checkout_is_brought_forward(client):
+    """The other end of the same promise: a database two releases old, upgraded in one pass.
+
+    The replay above is a repair kept possible through every migration that adds a column. This
+    is the ordinary upgrade — an installation that was never repaired, whose schema is simply old
+    — and it is built here rather than faked by editing the version table: the shipped files are
+    the only record of what that release's schema was.
+    """
+    sundial.DB_PATH.unlink()
+    bootstrap.init_db()
+    assert apply_migrations_upto(2) == [1, 2]
+    with sundial.db() as conn:
+        conn.execute(
+            "INSERT INTO blocks (id, title, day, start_min, duration_min, color, icon, notes,"
+            " done, updated_at) VALUES ('legacy', 'old row', '20260921', 600, 30, 'slate', '',"
+            " '', 0, '2026-09-20T00:00:00')"
+        )
+
+    assert sundial.migrate() == [3, 4, 5, 6, 7, 8]
+
+    with sundial.db() as conn:
+        rows = list(conn.execute("SELECT day FROM blocks WHERE id = 'legacy'"))
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
+    assert rows[0]["day"] == "2026-09-21", "the day the older release stored was not repaired"
+    assert {"parent_id", "sort_order"} <= columns, "the upgrade stopped short of the checklist"
 
     found = client.get("/api/day?day=2026-09-21").json()["blocks"]
     assert [b["title"] for b in found] == ["old row"]

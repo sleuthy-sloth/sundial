@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from clock import now_iso, today
 from schemas.blocks import BlockIn, BlockPatch
-from services import rollover, routines
+from services import rollover, routines, subtasks
 from services.blocks import PALETTE, get_block, pick_color, row_to_dict
 from services.scheduling import check_fits, validate_day
 from store import db
@@ -27,10 +27,16 @@ def get_day(day: Optional[str] = None) -> dict:
     they came from, which is everything the frontend needs to send a write to the rule instead of
     to a row: nothing is written for an occurrence until you change it.
 
+    A task's checklist is nested on it rather than listed beside it — `block["subtasks"]`, in the
+    order the lines were written. A line has no day of its own, so it is not in this query, not in
+    the day's plan and not in `minutes` anywhere: it is read here because it is part of the task,
+    and it travels with the task everywhere the task goes.
+
     `leftover` is the fourth list and the only one that is not on the day it is about: the
     unfinished blocks of the day before, which Today offers to take in. It is empty for every day
     except today, and it is read and not acted on — this route never moves anything. See
-    `services/rollover.py` for why a routine occurrence and a calendar event can never be in it.
+    `services/rollover.py` for why a routine occurrence and a calendar event can never be in it,
+    and why a checklist line never is either.
     """
     day = day or today()
     validate_day(day)
@@ -39,13 +45,20 @@ def get_day(day: Optional[str] = None) -> dict:
         scheduled = conn.execute(
             "SELECT * FROM blocks WHERE day = ? ORDER BY start_min", (day,)
         ).fetchall()
+        # `parent_id IS NULL` is what keeps a checklist line out of the inbox. A line has no day
+        # of its own either, so without it every step of every task would be waiting for a time.
         inbox = conn.execute(
-            "SELECT * FROM blocks WHERE day IS NULL ORDER BY updated_at DESC"
+            "SELECT * FROM blocks WHERE day IS NULL AND parent_id IS NULL"
+            " ORDER BY updated_at DESC"
         ).fetchall()
         occurrences = routines.occurrences_on(conn, day)
         leftover = rollover.leftover_for(conn, day, today_iso)
+        # One query per list, inside the connection that read them: no task is read without its
+        # lines, so no caller has to remember to ask for them.
+        blocks = subtasks.attach(conn, [row_to_dict(r) for r in scheduled])
+        inbox_items = subtasks.attach(conn, [row_to_dict(r) for r in inbox])
+        leftover = subtasks.attach(conn, leftover)
 
-    blocks = [row_to_dict(r) for r in scheduled]
     blocks.extend(occurrences)
     # One list in the order the day happens. A block and an occurrence on the same minute are
     # ordered blocks first, so a day full of routines never hides your own plan underneath it.
@@ -55,19 +68,50 @@ def get_day(day: Optional[str] = None) -> dict:
         "day": day,
         "today": today_iso,
         "blocks": blocks,
-        "inbox": [row_to_dict(r) for r in inbox],
+        "inbox": inbox_items,
         "leftover": leftover,
     }
 
 
+def _create_line(block_id: str, title: str, parent_id: str, body: BlockIn) -> dict:
+    """Write a checklist line under its task, and answer with it.
+
+    A line takes its task's colour, which nothing draws: it sits inside the task's own edge. It is
+    filled in rather than left to the column's default so that a file read by hand, or a template
+    copied later, never shows a line claiming a colour of its own.
+    """
+    with db() as conn:
+        parent = subtasks.parent_row(conn, parent_id)
+        conn.execute(
+            """INSERT INTO blocks
+                 (id, title, day, start_min, duration_min, color, icon, notes, done, updated_at,
+                  parent_id, sort_order)
+               VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 0, ?, ?, ?)""",
+            (block_id, title, body.duration_min, parent["color"], body.icon.strip(), body.notes,
+             now_iso(), parent["id"], subtasks.next_order(conn, parent["id"])),
+        )
+    return get_block(block_id)
+
+
 @router.post("/api/blocks", status_code=201)
 def create_block(body: BlockIn) -> dict:
+    """A task, or a line under one.
+
+    `parent_id` is the whole difference, and the two shapes do not mix: a request that gives a
+    line both a parent and a day is refused rather than half stored, because the day's own query
+    cannot see a line and one written onto a day would quietly be missing from every list that
+    shows it.
+    """
     block_id = uuid.uuid4().hex[:12]
     title = body.title.strip()
     if not title:
         raise HTTPException(400, "a block needs a title")
     if body.color is not None and body.color not in PALETTE:
         raise HTTPException(400, f"unknown color {body.color!r}")
+    if body.parent_id is not None:
+        if body.day is not None or body.start_min is not None:
+            raise HTTPException(400, "a checklist line is inside its task, not on the day")
+        return _create_line(block_id, title, body.parent_id, body)
     color = body.color or PALETTE[pick_color()]
     if body.day is not None:
         validate_day(body.day)
@@ -95,6 +139,10 @@ def patch_block(block_id: str, body: BlockPatch) -> dict:
 
     if body.unschedule:
         fields |= {"day": None, "start_min": None}
+
+    # A checklist line is inside its task: it is not scheduled, moved to a day, or sent to the
+    # inbox. Ticking one, renaming one and changing its length are the writes it does have.
+    subtasks.check_patch(current, fields, unschedule=body.unschedule)
 
     # Only the scheduling pair may be nulled. Every other field has a NOT NULL column
     # behind it, so an explicit null travelled to SQLite and came back as a 500.

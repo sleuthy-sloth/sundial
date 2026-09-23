@@ -51,7 +51,7 @@ export default function App() {
   const {
     day, setDay, today, blocks, inbox, week, routines, selectedId, subject,
     open, openRoutine, close, draft, setDraft, error, setError, leaving, settling,
-    write, capture, addToSection, scheduleAt, toggleDone, editor,
+    write, capture, addToSection, scheduleAt, toggleDone, toggleStep, editor,
     leftover, rollover, setRollover, moveLeftover, leaveOne,
     templates, templateNote, templateActions,
   } = usePlanner({ contentRef })
@@ -132,6 +132,7 @@ export default function App() {
               onCapture={capture}
               onOpen={open}
               onToggle={toggleDone}
+              onToggleStep={toggleStep}
               onAddAt={addToSection}
               leftover={leftover}
               onMoveLeftover={moveLeftover}

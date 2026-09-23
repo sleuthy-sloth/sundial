@@ -94,7 +94,12 @@ app.include_router(week.router)
 @app.get("/api/health")
 def health() -> dict:
     with db() as conn:
-        n = conn.execute("SELECT COUNT(*) AS n FROM blocks").fetchone()["n"]
+        # Top-level blocks: a checklist line is part of a task rather than a thing on a day, and a
+        # count that moved every time somebody wrote down a step would be a poor answer to "is it
+        # up, and does it hold anything".
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM blocks WHERE parent_id IS NULL"
+        ).fetchone()["n"]
     return {"ok": True, "blocks": n}
 
 

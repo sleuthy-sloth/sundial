@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Iterator
 
 from store import db
 
@@ -51,12 +52,23 @@ def migrate() -> list[int]:
     One `.sql` file per change, numbered; the number is the version. Adding a column
     later means adding a file, never editing one that has already run.
 
-    Each migration and its version record commit together. `executescript` commits
-    whatever is pending before it runs, so the transaction is opened *inside* the script
-    rather than around it: a migration that fails half way takes its own DDL down with
-    it instead of leaving a column that the version table says is not there — a state
-    that cannot then be retried, only repaired by hand. Migrations must not open or
-    commit transactions themselves.
+    The statements of a migration are run one at a time inside a transaction opened
+    here, so a migration that fails half way takes its own DDL down with it instead of
+    leaving a column that the version table says is not there — a state that cannot
+    then be retried, only repaired by hand. A migration's version record goes in the
+    same transaction, and migrations must not open or commit transactions themselves.
+
+    And one error is not a failure: `duplicate column name`. Replaying a migration is
+    not an accident to be caught — it is the repair, and it is what `test_app.py` and
+    `scripts/smoke_release.py` both do: the version records from a migration up are
+    deleted and the app is started again, which is the only way to re-run the day
+    repair in 003 on an installation that stored a compact date. Every later migration
+    comes back with it or MAX(version) still reads past the repair. That survived as
+    long as migrations only created things, which is the one shape SQLite has "if not
+    exists" for; `ALTER TABLE ... ADD COLUMN` is the shape it does not, so a replay
+    that was refused here would take the repair away instead of performing it. A
+    column that is already there is what SQLite means by that error and it means
+    nothing else, so the statement is skipped and its migration counts as applied.
     """
     applied: list[int] = []
     if not MIGRATIONS.is_dir():
@@ -72,20 +84,52 @@ def migrate() -> list[int]:
                 raise RuntimeError(f"migration {path.name} must start with a number") from None
             if version <= current:
                 continue
-            script = (
-                "BEGIN;\n"
-                f"{path.read_text()}\n"
-                f"INSERT INTO schema_version (version) VALUES ({version});\n"
-                "COMMIT;"
-            )
+            if conn.in_transaction:  # nothing pending outlives a migration
+                conn.commit()
+            conn.execute("BEGIN")
             try:
-                conn.executescript(script)
+                for statement in _statements(path.read_text()):
+                    try:
+                        conn.execute(statement)
+                    except sqlite3.OperationalError as exc:
+                        if not _already_there(exc):
+                            raise
+                conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+                conn.execute("COMMIT")
             except Exception:
                 conn.rollback()
                 raise
             current = version
             applied.append(version)
     return applied
+
+
+def _statements(script: str) -> Iterator[str]:
+    """A migration file cut where SQLite itself says one statement ends.
+
+    `sqlite3.complete_statement` is the module's own lexer, so a semicolon inside a string or a
+    comment does not end a statement, and a fragment with nothing but comments in it is not one
+    (`conn.execute` refuses those).
+    """
+    fragment = ""
+    for line in script.splitlines(keepends=True):
+        fragment += line
+        if sqlite3.complete_statement(fragment):
+            if _code(fragment).strip():
+                yield fragment
+            fragment = ""
+    if _code(fragment).strip():
+        yield fragment
+
+
+def _code(fragment: str) -> str:
+    """The fragment with its comments cut off the end of each line, which is what SQLite reads."""
+    return "\n".join(line.split("--", 1)[0] for line in fragment.splitlines())
+
+
+def _already_there(exc: sqlite3.OperationalError) -> bool:
+    """True for the one error a replayed migration is allowed to produce — see `migrate`."""
+    return str(exc).startswith("duplicate column name:")
 
 
 def current_schema_version(conn: sqlite3.Connection) -> int:

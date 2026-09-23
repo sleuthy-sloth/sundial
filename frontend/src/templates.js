@@ -15,6 +15,7 @@
  */
 
 import { durText, hhmm } from './time.js'
+import { payloadSteps } from './subtasks.js'
 
 /** What a line starts as when you add one. No hour, because most of a template is usually
  *  Anytime first and a time later — and an item with no hour is a complete item, not a draft. */
@@ -73,7 +74,11 @@ export const withItem = (items, item = NEW_ITEM) => [...items, { ...item }]
 /** The body for `PUT /api/templates/{id}/blocks`: the lines, and nothing else.
  *
  *  Ids and sort_order are the server's to assign — the position in this array is the order —
- *  and sending them back would be this module claiming to know something it was told. */
+ *  and sending them back would be this module claiming to know something it was told.
+ *
+ *  A line's steps travel with it, or saving a rename would throw them away: the whole list is
+ *  replaced on every save, so anything left out of this body is deleted. They are names in
+ *  order, for the same reason the lines are. */
 export const payloadItems = (items = []) =>
   items.map((i) => ({
     title: i.title,
@@ -82,6 +87,7 @@ export const payloadItems = (items = []) =>
     color: i.color,
     icon: i.icon ?? '',
     notes: i.notes ?? '',
+    subtasks: payloadSteps(i.subtasks),
   }))
 
 /** What was just added, in one sentence. Not a count of what the day now holds: the answer to

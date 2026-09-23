@@ -573,12 +573,15 @@ def seed_routine(client):
 def test_routines_and_their_days_survive_a_round_trip(client):
     seed_routine(client)
     document = client.get("/api/export").json()
-    # 4 since templates joined the file; 3 was settings, 2 was routines. What matters here is that
-    # a file written now is not the file a version-1 sundial could read.
-    assert document["version"] == 4, "files that carry routines are a new format version"
+    # 5 since a routine’s checklist lines joined the file; 4 was templates, 3 was settings, 2 was
+    # routines. What matters here is that a file written now is not the file a version-1 sundial
+    # could read.
+    assert document["version"] == 5, "files that carry routines are a new format version"
     assert len(document["tables"]["routines"]) == 1
     assert len(document["tables"]["routine_overrides"]) == 2
-    assert len(document["tables"]["routine_overrides"][0]) == 12
+    # Thirteen columns: the twelve an override has always had, and the ids of the checklist
+    # lines this day ticked.
+    assert len(document["tables"]["routine_overrides"][0]) == 13
     assert "password" not in json.dumps(document).lower()
 
     with store.db() as conn:

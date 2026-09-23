@@ -13,6 +13,11 @@ Three kinds of thing are deliberately outside the question:
                           has an occurrence on today, and rolling yesterday's forward would be
                           the same hour twice on the same day
     a finished block      `done = 0` is part of the predicate
+    a checklist line      a line is unfinished or finished as part of its task, never on its own:
+                          offered as its own row it would be an orphan with no context, and
+                          `parent_id IS NULL` is what says so. A line has no day of its own, so it
+                          already fails the day clause; the two are written out together because
+                          the two are the same promise — the section moves tasks.
 
 `day IS NOT NULL` is the one clause that reads as redundant and is not. A block with no day is in
 the inbox, and an inbox item can never be "yesterday's" — there is no day of its own for it to have
@@ -28,9 +33,12 @@ from datetime import timedelta
 
 from services.blocks import row_to_dict
 
-# Unfinished, scheduled, and on this day. Ordered the way the day it was is ordered, so the list
-# reads as the plan it was.
-UNFINISHED = "SELECT * FROM blocks WHERE day = ? AND done = 0 AND day IS NOT NULL ORDER BY start_min"
+# Unfinished, scheduled, and on this day, and a task rather than a line under one. Ordered the
+# way the day it was is ordered, so the list reads as the plan it was.
+UNFINISHED = (
+    "SELECT * FROM blocks WHERE day = ? AND done = 0 AND day IS NOT NULL"
+    " AND parent_id IS NULL ORDER BY start_min"
+)
 
 
 def day_before(day: str) -> str:

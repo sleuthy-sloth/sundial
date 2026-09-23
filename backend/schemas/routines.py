@@ -55,7 +55,9 @@ class OccurrencePatch(BaseModel):
     you never touched.
 
     `done` and `skipped` are stated rather than derived: they are what you decided about this
-    day, not fields of the block.
+    day, not fields of the block. Neither of them is ever set by a checklist line — the lines are
+    ticked by a route of their own, because "the box for the third step" and "this day is done"
+    are two different statements and neither one implies the other.
     """
 
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
@@ -66,3 +68,24 @@ class OccurrencePatch(BaseModel):
     notes: Optional[str] = None
     done: Optional[bool] = None
     skipped: Optional[bool] = None
+
+
+class SubtaskIn(BaseModel):
+    """A line of a routine's checklist, as it is written down.
+
+    A name and nothing else. The rule owns when the block happens and where it sits; a line inside
+    it has no hour of its own, which is why there is no `start_min` here and no `done` either —
+    what was ticked belongs to a day, and a day is named by the route that ticks it.
+    """
+
+    title: str = Field(min_length=1, max_length=200)
+
+
+class SubtaskTick(BaseModel):
+    """One day's answer about one line: ticked, or not ticked.
+
+    Stated rather than toggled, like every other write here. A tap that arrives twice — a double
+    tap, a retry — lands on the same answer instead of flipping back.
+    """
+
+    done: bool

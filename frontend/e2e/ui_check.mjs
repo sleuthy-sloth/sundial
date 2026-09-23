@@ -2283,14 +2283,21 @@ const wantThemeLight = async () => {
   check(
     'and it is a complete export, every table present',
     document.format === 'sundial-export' &&
-      // The eight the format promises, named here rather than read from the app: this is the check
-      // that would notice a table quietly dropping out of the file. It had lost the routines when
-      // they shipped, and `settings` is where unfinished work is remembered.
+      // The eleven the format promises, named here rather than read from the app: this is the
+      // check that would notice a table quietly dropping out of the file. It had lost the
+      // routines when they shipped, `settings` is where unfinished work is remembered, and
+      // `routine_subtasks` is the checklist a routine holds — new persisted data, so it is in
+      // the file and a version 5 file is what carries it.
       [
-        'calendars', 'routines', 'routine_overrides', 'templates', 'template_blocks', 'blocks',
-        'events', 'sync_log', 'push_sent', 'settings',
+        'calendars', 'routines', 'routine_subtasks', 'routine_overrides', 'templates',
+        'template_blocks', 'blocks', 'events', 'sync_log', 'push_sent', 'settings',
       ].every((t) => Array.isArray(document.tables[t])),
     `format ${document.format}, version ${document.version}`,
+  )
+  check(
+    'and the version it says it is',
+    document.version === 5,
+    `version ${document.version}`,
   )
   check(
     'and it carries the day it was taken from',
@@ -3159,6 +3166,258 @@ const wantThemeLight = async () => {
   }
 }
 
+
+// ---- a task can hold a checklist ------------------------------------------------------------
+// A step is part of its task, and the checks here are about that and nothing else: the steps are
+// drawn inside the task's own row rather than as rows or blocks of their own, they do not move
+// the day's counts, ticking one does not finish the task it belongs to, and a tick is still
+// there after a reload.
+//
+// That last one is the check this feature lives or dies by, and it is asked twice: once of a
+// block's step, which is a row of its own, and once of a routine's step, which is not — a
+// routine's days are calculated, so the obvious implementation of a checkbox on one is a box
+// that silently resets with the calendar. It is checked here on the screen, not only through the
+// API, because "the server stored it" and "the box is still ticked when you come back" are two
+// different claims and only the second one is the feature.
+//
+// Everything it seeds is named `ui-check …` and removed again in its own `finally`: the snapshots
+// come next, and a task with a row of steps on today would be in all of them.
+{
+  const task = 'ui-check pack'
+  const waiting = 'ui-check renew'
+  const gym = 'ui-check gym steps'
+  const stepsMade = []
+
+  const dayNow = async () => req(`/day?day=${today}`)
+  /** The task with this title, from the day or the inbox, as the server has it. */
+  const findTask = async (title) => {
+    const day = await dayNow()
+    return [...day.blocks, ...day.inbox].find((b) => b.title === title) || null
+  }
+  /** The row drawn for a title. Filtering on the title, then on the row that has no row inside
+   *  it: a step's text is inside its task's row, and a filter would match both. */
+  const rowFor = (title) =>
+    page.locator('.row').filter({ has: page.locator(`.row-title:text-is("${title}")`) })
+  const stepsIn = (title) => rowFor(title).locator('.row-steps .row-step')
+  const removeByName = async (title) => {
+    const found = await findTask(title)
+    if (!found) return
+    for (const step of found.subtasks ?? []) await req(`/blocks/${step.id}`, { method: 'DELETE' })
+    await req(`/blocks/${found.id}`, { method: 'DELETE' })
+  }
+  const removeRoutine = async (title) => {
+    for (const r of (await req('/routines')).routines) {
+      if (r.title === title) await req(`/routines/${r.id}`, { method: 'DELETE' })
+    }
+  }
+
+  try {
+    // Nothing left by a run that failed half way through, by name.
+    for (const title of [task, waiting]) await removeByName(title)
+    await removeRoutine(gym)
+
+    // A task at 10am with three steps, one of them already ticked, made the way the app makes
+    // them — a step is a block with a parent, so there is no route here that exists only for
+    // this feature.
+    const pack = await req('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ title: task, day: today, start_min: 10 * 60, duration_min: 30 }),
+    })
+    made.push(pack.id)
+    const names = ['ui-check passport', 'ui-check charger', 'ui-check meds']
+    for (const name of names) {
+      const step = await req('/blocks', {
+        method: 'POST',
+        body: JSON.stringify({ title: name, parent_id: pack.id }),
+      })
+      stepsMade.push(step.id)
+      made.push(step.id)
+    }
+    await req(`/blocks/${stepsMade[1]}`, { method: 'PATCH', body: JSON.stringify({ done: true }) })
+
+    // An inbox task with a step of its own: Anytime is a list of things you can give a time to,
+    // and a step of one of them is not one of those.
+    const renew = await req('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ title: waiting, duration_min: 15 }),
+    })
+    made.push(renew.id)
+    const photo = await req('/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'ui-check photo', parent_id: renew.id }),
+    })
+    made.push(photo.id)
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await until(async () => (await rowFor(task).count()) === 1)
+
+    const drawn = await page.evaluate((title) => {
+      const rows = [...document.querySelectorAll('.row')]
+      const row = rows.find((r) => r.querySelector('.row-title')?.textContent === title)
+      if (!row) return null
+      return {
+        steps: [...row.querySelectorAll('.row-steps .row-step')].map((s) => ({
+          title: s.querySelector('.step-title').textContent,
+          ticked: s.querySelector('.step-notch').getAttribute('aria-checked'),
+        })),
+        rowsMentioningAStep: rows.filter((r) => r.textContent.includes('ui-check passport')).length,
+        stepItemsDrawnAsRows: document.querySelectorAll('.row-steps .row, .row-steps .block').length,
+        morningCount: document.querySelector('.section-morning .count')?.textContent,
+      }
+    }, task)
+
+    check(
+      'a task’s steps are drawn inside the task’s own row, in the order they were written',
+      JSON.stringify(drawn?.steps?.map((s) => s.title)) === JSON.stringify(names),
+      drawn ? drawn.steps.map((s) => s.title).join(' · ') : 'the row was never drawn',
+    )
+    check(
+      'and a step is not a row or a block of its own',
+      drawn?.rowsMentioningAStep === 1 && drawn?.stepItemsDrawnAsRows === 0,
+      drawn ? `${drawn.rowsMentioningAStep} row(s) mention it` : 'not drawn',
+    )
+    // The timeline is the app's own count of the day, so it is where "a step is not a block" has
+    // to be true: one drawn block per block the server has, with a checklist on one of them.
+    const timelineBlocks = async () => page.locator('.content .block').count()
+    await page.locator('.tabs button[data-tab="day"]').click()
+    await until(async () => (await timelineBlocks()) === (await blocksOn(today)).length)
+    check(
+      'and the timeline draws one block per block, with a checklist on one of them',
+      (await timelineBlocks()) === (await blocksOn(today)).length,
+      `${await timelineBlocks()} block(s) drawn for ${(await blocksOn(today)).length} on the day`,
+    )
+    await page.locator('.tabs button[data-tab="today"]').click()
+    await until(async () => (await rowFor(task).count()) === 1)
+    check(
+      'and the day still counts one task, not one per step',
+      (await page.locator('.section-morning .row').count()) === 1,
+      `the morning section has ${await page.locator('.section-morning .row').count()} row(s)`,
+    )
+    check(
+      'and a step that was already ticked reads as ticked',
+      drawn?.steps?.[1]?.ticked === 'true' && drawn?.steps?.[0]?.ticked === 'false',
+      drawn ? drawn.steps.map((s) => s.ticked).join(',') : 'not drawn',
+    )
+
+    // The tick itself, through the screen rather than the API, then the reload that is the whole
+    // point of it being stored anywhere.
+    await stepsIn(task).nth(0).locator('.step-notch').click()
+    const stayed = await until(async () => (await findTask(task))?.subtasks?.[0]?.done === true)
+    check('ticking a step from the row writes it down', Boolean(stayed), 'the server has it')
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await until(async () => (await rowFor(task).count()) === 1)
+    const afterReload = await page.evaluate((title) => {
+      const row = [...document.querySelectorAll('.row')]
+        .find((r) => r.querySelector('.row-title')?.textContent === title)
+      return row
+        ? {
+            ticks: [...row.querySelectorAll('.step-notch')].map((n) => n.getAttribute('aria-checked')),
+            taskChecked: row.querySelector('.notch').getAttribute('aria-checked'),
+          }
+        : null
+    }, task)
+    check(
+      'and it is still ticked when the day is read again',
+      JSON.stringify(afterReload?.ticks) === JSON.stringify(['true', 'true', 'false']),
+      afterReload ? afterReload.ticks.join(',') : 'the row was never drawn',
+    )
+    check(
+      'and the task itself is not finished by its last step',
+      afterReload?.taskChecked === 'false',
+      afterReload ? `the task's own box reads ${afterReload.taskChecked}` : 'not drawn',
+    )
+
+    // Anytime: the task waits for a time with its step inside it, and the step does not wait on
+    // its own — one item waiting, not two. Read from the day the server has rather than from the
+    // inbox panel, which is only drawn on a wide screen.
+    const waitingNow = await inboxNow()
+    check(
+      'an inbox task keeps its step, and the step is not waiting on its own',
+      (await stepsIn(waiting).count()) === 1 &&
+        waitingNow.some((b) => b.title === waiting) &&
+        !waitingNow.some((b) => b.title === 'ui-check photo'),
+      `${waitingNow.length} waiting: ${waitingNow.map((b) => b.title).join(', ')}`,
+    )
+
+    // A routine's checklist, which is the shape that could have been a checkbox nothing keeps:
+    // the day is calculated, so the tick has to be written somewhere that survives a reload.
+    const rule = await req('/routines', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: gym, start_min: 6 * 60 + 30, duration_min: 45,
+        recurrence_kind: 'daily', start_date: today,
+      }),
+    })
+    for (const name of ['ui-check towel', 'ui-check bottle']) {
+      await req(`/routines/${rule.id}/subtasks`, {
+        method: 'POST',
+        body: JSON.stringify({ title: name }),
+      })
+    }
+    await page.reload({ waitUntil: 'networkidle' })
+    await until(async () => (await stepsIn(gym).count()) === 2)
+    await stepsIn(gym).nth(1).locator('.step-notch').click()
+    const ruleNow = async () =>
+      (await dayNow()).blocks.find((b) => b.source === 'routine' && b.title === gym) || null
+    check(
+      'a routine’s step can be ticked from the row it is drawn on',
+      Boolean(await until(async () => (await ruleNow())?.subtasks?.[1]?.done === true)),
+      'the server has it',
+    )
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await until(async () => (await stepsIn(gym).count()) === 2)
+    const kept = await page.evaluate((title) => {
+      const row = [...document.querySelectorAll('.row')]
+        .find((r) => r.querySelector('.row-title')?.textContent === title)
+      return row ? [...row.querySelectorAll('.step-notch')].map((n) => n.getAttribute('aria-checked')) : null
+    }, gym)
+    check(
+      'and it is still ticked after a reload, which is the whole reason it is stored',
+      JSON.stringify(kept) === JSON.stringify(['false', 'true']),
+      kept ? kept.join(',') : 'the row was never drawn',
+    )
+    check(
+      'and ticking a step does not finish the day of the routine',
+      Boolean(await ruleNow()) && (await ruleNow()).done === false,
+      'the occurrence is its own statement',
+    )
+
+    // The panel, where a step is added: the same write the row does, from the other place it can
+    // be done. Both steps that were made here are then removed from the panel too.
+    await rowFor(task).locator('.row-open').click()
+    await until(async () => (await page.locator('.editor .step-add .step-new').count()) === 1)
+    const stepsInPanel = await page.locator('.editor .step-list .step-edit').count()
+    check(
+      'the panel shows the task’s steps, each of them as a thing you can change',
+      stepsInPanel === 3,
+      `${stepsInPanel} step(s) in the panel`,
+    )
+
+    await page.locator('.editor .step-new').fill('ui-check snacks')
+    await page.locator('.editor .step-add button').click()
+    const added = await until(async () => {
+      const found = await findTask(task)
+      return (found?.subtasks ?? []).some((s) => s.title === 'ui-check snacks')
+    })
+    check('and a step added there is a step', Boolean(added), 'the fourth one arrived')
+
+    await until(async () => (await page.locator('.editor .step-list .step-edit').count()) === 4)
+    const last = (await findTask(task)).subtasks.find((s) => s.title === 'ui-check snacks')
+    await page
+      .locator(`.editor .step-remove[aria-label="Remove step 4"]`)
+      .click()
+    const gone = await until(async () => {
+      const found = await findTask(task)
+      return found && !(found.subtasks ?? []).some((s) => s.id === last.id)
+    })
+    check('and a step taken out there is gone', Boolean(gone), 'and by its own id')
+  } finally {
+    await removeRoutine(gym)
+    for (const title of [task, waiting]) await removeByName(title)
+  }
+}
 
 // ---- visual regression snapshots ------------------------------------------------------------
 // Seven pictures of the app in states whose appearance is the feature: the phone agenda, desktop

@@ -18,6 +18,18 @@ from services.scheduling import DAY_MIN
 NAME_MAX = 80
 
 
+class TemplateSubtaskIn(BaseModel):
+    """A line under an item: a name, and how long it is meant to take if you said.
+
+    No hour and no colour. A line is inside its item: the item's `start_min` is when the task
+    happens, and the item's colour is what the whole thing is drawn in. An hour here would be a
+    second, contradicting answer to a question the item already answered.
+    """
+
+    title: str = Field(min_length=1, max_length=200)
+    duration_min: int = Field(default=30, ge=5, le=DAY_MIN)
+
+
 class TemplateItemIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     # Null means Anytime. Absolute minutes past midnight when it is there, the same units a
@@ -27,6 +39,8 @@ class TemplateItemIn(BaseModel):
     color: Optional[str] = None
     icon: str = Field(default="", max_length=8)
     notes: str = ""
+    # The checklist under this item, in the order it was written. One level: a line has no lines.
+    subtasks: list[TemplateSubtaskIn] = Field(default_factory=list)
 
 
 class TemplateIn(BaseModel):
